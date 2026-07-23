@@ -1,0 +1,20 @@
+# --- Generated from simulation outputs ---
+project_id             = "YOUR_PROJECT_ID"
+region                 = "us-central1"
+alert_email            = "your-email@example.com"
+composer_env_name      = "monitoring-lab-composer"
+datastream_stream_ids  = ["monitoring-lab-stream"]
+bq_monitored_datasets  = ["monitoring_lab_raw", "monitoring_lab_silver"]
+gcs_monitored_buckets  = ["YOUR_PROJECT_ID-monitoring-lab-datalake"]
+
+# BigQuery monitoring
+bq_location           = "US"
+bq_reports_dataset_id = "monitoring_reports"
+bq_slot_time_threshold = 300
+
+# Datastream monitoring
+datastream_lag_threshold_seconds = 600
+
+# Slack (optional — leave empty to skip)
+slack_webhook_url = ""
+slack_channel_name = ""

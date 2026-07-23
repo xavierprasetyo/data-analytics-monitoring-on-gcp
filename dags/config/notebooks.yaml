@@ -1,0 +1,42 @@
+# ---------------------------------------------------------------------------
+# notebooks.yaml — Notebook Registry
+#
+# Register notebooks here for execution via the notebook_executor DAG.
+# Each entry creates a task in Composer that triggers the notebook on
+# Colab Enterprise / Vertex AI.
+#
+# Fields:
+#   name            (required)  Unique name → becomes the Airflow task_id
+#   gcs_uri         (required)  GCS path to the notebook .ipynb file
+#   output_folder   (optional)  GCS folder for execution output
+#   params          (optional)  Key-value pairs passed to the notebook
+#   retries         (optional)  Number of retries on failure (default: 1)
+#   retry_delay_min (optional)  Minutes between retries (default: 5)
+#   timeout_seconds (optional)  Max execution time (default: 3600)
+#
+# Airflow template variables are supported in param values:
+#   {{ ds }}                    — execution date (YYYY-MM-DD)
+#   {{ var.value.project_id }}  — Airflow variable
+#   {{ macros.ds_add(ds, -7) }} — date arithmetic
+# ---------------------------------------------------------------------------
+
+notebooks:
+  # Example: Daily orders report notebook
+  # - name: orders_report
+  #   gcs_uri: gs://my-bucket/notebooks/orders_report.ipynb
+  #   output_folder: gs://my-bucket/notebook-outputs/orders/
+  #   params:
+  #     date: "{{ ds }}"
+  #     project_id: "{{ var.value.project_id }}"
+  #   retries: 2
+  #   retry_delay_min: 10
+  #   timeout_seconds: 1800
+
+  # Example: Weekly aggregation notebook
+  # - name: weekly_aggregation
+  #   gcs_uri: gs://my-bucket/notebooks/weekly_agg.ipynb
+  #   output_folder: gs://my-bucket/notebook-outputs/weekly/
+  #   params:
+  #     week_start: "{{ macros.ds_add(ds, -7) }}"
+  #   retries: 1
+  #   timeout_seconds: 3600
