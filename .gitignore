@@ -1,0 +1,22 @@
+# Terraform (both versions)
+**/terraform/.terraform/
+**/terraform/.terraform.lock.hcl
+**/terraform/terraform.tfstate
+**/terraform/terraform.tfstate.backup
+**/terraform/*.tfplan
+**/terraform/tfplan
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
