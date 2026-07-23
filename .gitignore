@@ -5,6 +5,7 @@
 **/terraform/terraform.tfstate.backup
 **/terraform/*.tfplan
 **/terraform/tfplan
+**/terraform/.terraform.tfstate.lock.info
 
 # OS
 .DS_Store
