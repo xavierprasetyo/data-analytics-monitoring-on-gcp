@@ -79,7 +79,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "resource.type = \"datastream.googleapis.com/Stream\" AND metric.type = \"datastream.googleapis.com/stream/total_latency\""
+                        filter = "resource.type = \"datastream.googleapis.com/Stream\" AND metric.type = \"datastream.googleapis.com/stream/total_latencies\""
                         aggregation = {
                           alignmentPeriod    = "300s"
                           perSeriesAligner   = "ALIGN_MAX"
@@ -145,7 +145,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "resource.type = \"datastream.googleapis.com/Stream\" AND metric.type = \"datastream.googleapis.com/stream/throughput\""
+                        filter = "resource.type = \"datastream.googleapis.com/Stream\" AND metric.type = \"datastream.googleapis.com/stream/bytes_count\""
                         aggregation = {
                           alignmentPeriod    = "300s"
                           perSeriesAligner   = "ALIGN_RATE"
@@ -275,7 +275,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "resource.type = \"bigquery_project\" AND metric.type = \"bigquery.googleapis.com/job/bytes_processed\""
+                        filter = "resource.type = \"bigquery_project\" AND metric.type = \"bigquery.googleapis.com/query/scanned_bytes\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_SUM"
@@ -306,7 +306,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "resource.type = \"bigquery_resource\" AND metric.type = \"logging.googleapis.com/user/bq_scheduled_query_failures\""
+                        filter = "resource.type = \"global\" AND metric.type = \"logging.googleapis.com/user/bq_scheduled_query_failures\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_SUM"
