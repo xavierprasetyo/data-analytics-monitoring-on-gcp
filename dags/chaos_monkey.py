@@ -1,7 +1,14 @@
 """
-chaos_monkey DAG — Intentionally creates failures to test monitoring alerts.
+chaos_monkey DAG — Standalone failure generator for smoke-testing alerts.
 
-Runs every 30 minutes. Randomly:
+NOTE: This DAG is PAUSED BY DEFAULT. It is superseded by the in-DAG fault
+injection built into raw_to_silver and silver_to_datamart (controlled via
+Airflow Variables: chaos_enabled, chaos_error_rate, chaos_delay_seconds).
+
+Keep this DAG as a quick backup smoke-test tool. Unpause it manually if you
+need to generate standalone failures without waiting for pipeline schedules.
+
+Runs every 30 minutes (when unpaused). Randomly:
   1. Fails tasks (50% chance) — triggers task failure alerts
   2. Runs heavy BQ queries — triggers slot-time alerts
   3. Logs errors — triggers log-based alerts
@@ -30,10 +37,11 @@ default_args = {
 with DAG(
     dag_id="chaos_monkey",
     default_args=default_args,
-    description="Intentionally creates failures to test monitoring and alerting",
+    description="Standalone failure generator — paused by default, superseded by in-DAG fault injection",
     schedule_interval="*/30 * * * *",
     start_date=days_ago(1),
     catchup=False,
+    is_paused_upon_creation=True,
     tags=["testing", "chaos", "monitoring"],
 ) as dag:
 

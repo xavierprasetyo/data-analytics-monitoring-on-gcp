@@ -4,16 +4,24 @@ silver_to_datamart DAG — Aggregates SILVER data into DATAMART tables.
 Runs every hour. Creates/replaces:
   1. revenue_by_product — Revenue aggregation by product and region
   2. order_status_summary — Order status counts over time
+
+Fault Injection:
+  This DAG includes a chaos injection point controlled via Airflow Variables:
+    - chaos_check: Randomly fails before aggregation queries
+  Set chaos_enabled=true and chaos_error_rate=0-100 to control.
 """
 
 import os
 from datetime import timedelta
 
 from airflow import DAG
+from airflow.operators.python import PythonOperator
 from airflow.providers.google.cloud.operators.bigquery import (
     BigQueryInsertJobOperator,
 )
 from airflow.utils.dates import days_ago
+
+from fault_injection import maybe_fail_task
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "da-monitoring-lab-07230757")
 SILVER_DATASET = os.environ.get("BQ_DATASET_SILVER", "monitoring_lab_silver")
@@ -88,4 +96,11 @@ with DAG(
         },
     )
 
-    [revenue_by_product, order_status_summary]
+    # Chaos — random failure before aggregation (simulates pipeline crash)
+    chaos_check = PythonOperator(
+        task_id="chaos_check",
+        python_callable=maybe_fail_task,
+        op_kwargs={"label": "silver_to_datamart.pre_aggregation"},
+    )
+
+    chaos_check >> [revenue_by_product, order_status_summary]

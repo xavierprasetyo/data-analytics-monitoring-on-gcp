@@ -22,7 +22,7 @@ A comprehensive, step-by-step guide to deploy the complete data pipeline simulat
 | **RAW Layer** | BigQuery `monitoring_lab_raw` | Real-time | CDC replica of orders table |
 | **Transform** | Composer: `raw_to_silver` DAG | Every 15 min | MERGE + dedup into silver layer |
 | **Aggregate** | Composer: `silver_to_datamart` DAG | Every hour | Revenue by product, order status counts |
-| **Chaos** | Composer: `chaos_monkey` DAG | Every 30 min | Random failures to trigger alerts |
+| **Chaos** | Fault injection in production DAGs | Configurable | In-DAG failures controlled via Airflow Variables (default 30%) |
 
 ---
 
@@ -320,19 +320,64 @@ Navigate to **Cloud Monitoring → Dashboards**:
 
 Navigate to **Cloud Monitoring → Alerting → Policies**:
 - All 15 policies should be listed as "Enabled"
-- The `chaos_monkey` DAG will trigger failures within ~30 minutes
+- Fault injection in production DAGs will trigger failures based on `chaos_error_rate`
 
-### 4.3: Check Email Notifications
+### 4.3: Test Fault Injection 🔥
 
-The `chaos_monkey` DAG runs every 30 minutes with:
-- **30% chance** of raising a Python exception → "Failed Task Instances" alert
-- **20% chance** of running invalid SQL → "Failed DAG Runs" alert
+Fault injection is built directly into the `raw_to_silver` and `silver_to_datamart` DAGs, controlled via Airflow Variables:
 
-When triggered, you'll receive an email at `alert_email` with:
-- Alert policy name
-- Condition that was violated
-- Resource labels (DAG ID, task ID)
-- Link to Cloud Monitoring incident
+| Variable | Type | Default | Description |
+|---|---|---|---|
+| `chaos_enabled` | `true`/`false` | `false` | Master kill switch |
+| `chaos_error_rate` | `0`–`100` | `30` | Probability (%) each injection point fires |
+| `chaos_delay_seconds` | integer | `120` | Seconds to sleep for delay injection |
+
+**Enable chaos with default 30% error rate:**
+
+```bash
+gcloud composer environments run $COMPOSER_ENV_NAME \
+  --location=$COMPOSER_LOCATION --project=$GCP_PROJECT_ID \
+  variables set -- chaos_enabled true
+```
+
+**Guarantee failures for demo (100% rate):**
+
+```bash
+gcloud composer environments run $COMPOSER_ENV_NAME \
+  --location=$COMPOSER_LOCATION --project=$GCP_PROJECT_ID \
+  variables set -- chaos_error_rate 100
+```
+
+**Simulate BigQuery taking 5 minutes:**
+
+```bash
+gcloud composer environments run $COMPOSER_ENV_NAME \
+  --location=$COMPOSER_LOCATION --project=$GCP_PROJECT_ID \
+  variables set -- chaos_delay_seconds 300
+```
+
+**Turn off all fault injection:**
+
+```bash
+gcloud composer environments run $COMPOSER_ENV_NAME \
+  --location=$COMPOSER_LOCATION --project=$GCP_PROJECT_ID \
+  variables set -- chaos_enabled false
+```
+
+#### Injection Points
+
+| DAG | Task | Fault Type | What It Simulates |
+|---|---|---|---|
+| `raw_to_silver` | `chaos_pre_merge` | Delay | BigQuery taking a long time |
+| `raw_to_silver` | `chaos_post_merge` | Failure | Post-processing crash |
+| `silver_to_datamart` | `chaos_check` | Failure | Aggregation pipeline crash |
+
+When triggered, you'll receive alerts at:
+- 📧 **Email**: Check your inbox (~5-10 min delay)
+- 📊 **Cloud Monitoring**: Alerting console shows incidents
+- 📋 **Cloud Logging**: ERROR-level structured logs with `dag_id`, `task_id`
+
+> The `chaos_monkey` DAG is also available (paused by default) as a quick smoke-test tool. Unpause it manually if you need standalone failures.
 
 ---
 
@@ -396,7 +441,8 @@ This is the complete list of files that need to be created or modified from the 
 | `terraform/simulation/cloudrun.tf` | Cloud Run service + VPC connector + Artifact Registry |
 | `dags/raw_to_silver.py` | RAW → SILVER transformation DAG |
 | `dags/silver_to_datamart.py` | SILVER → DATAMART aggregation DAG |
-| `dags/chaos_monkey.py` | Random failure generator DAG |
+| `dags/chaos_monkey.py` | Standalone failure generator (paused by default) |
+| `plugins/fault_injection.py` | Configurable fault injection plugin |
 | `scripts/setup_pipeline.sh` | One-command pipeline setup |
 
 ### Modified Files

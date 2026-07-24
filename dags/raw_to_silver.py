@@ -4,6 +4,12 @@ raw_to_silver DAG — Merges CDC data from RAW layer to SILVER layer.
 Runs every 15 minutes. Performs:
   1. MERGE from raw orders into silver (deduplication by order_id)
   2. Logs row counts for monitoring
+
+Fault Injection:
+  This DAG includes two chaos injection points controlled via Airflow Variables:
+    - chaos_pre_merge:  Injects delay before MERGE (simulates slow BigQuery)
+    - chaos_post_merge: Randomly fails after MERGE (simulates post-processing crash)
+  Set chaos_enabled=true and chaos_error_rate=0-100 to control.
 """
 
 import os
@@ -15,6 +21,8 @@ from airflow.providers.google.cloud.operators.bigquery import (
     BigQueryInsertJobOperator,
 )
 from airflow.utils.dates import days_ago
+
+from fault_injection import maybe_delay_task, maybe_fail_task
 
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "da-monitoring-lab-07230757")
 RAW_DATASET = os.environ.get("BQ_DATASET_RAW", "monitoring_lab_raw")
@@ -115,7 +123,21 @@ with DAG(
         },
     )
 
-    # Step 3: Log row count
+    # Step 3: Chaos — inject delay before merge (simulates slow BigQuery)
+    chaos_pre_merge = PythonOperator(
+        task_id="chaos_pre_merge",
+        python_callable=maybe_delay_task,
+        op_kwargs={"label": "raw_to_silver.pre_merge"},
+    )
+
+    # Step 4: Chaos — random failure after merge (simulates post-processing crash)
+    chaos_post_merge = PythonOperator(
+        task_id="chaos_post_merge",
+        python_callable=maybe_fail_task,
+        op_kwargs={"label": "raw_to_silver.post_merge"},
+    )
+
+    # Step 5: Log row count
     def log_silver_count(**context):
         from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
         hook = BigQueryHook(use_legacy_sql=False, location="US")
@@ -131,4 +153,4 @@ with DAG(
         python_callable=log_silver_count,
     )
 
-    create_silver_table >> merge_raw_to_silver >> log_count
+    create_silver_table >> chaos_pre_merge >> merge_raw_to_silver >> chaos_post_merge >> log_count

@@ -195,32 +195,46 @@ bash scripts/deploy_dags.sh
 
 ### Step 5: Test Failure Alerts 🔥
 
+Fault injection is built directly into the production DAGs (`raw_to_silver`, `silver_to_datamart`), controlled via Airflow Variables:
+
 ```bash
-# Force the dbt task to fail
+# Enable chaos with default 30% error rate
 gcloud composer environments run $COMPOSER_ENV_NAME \
   --location=$COMPOSER_LOCATION --project=$GCP_PROJECT_ID \
-  variables set -- force_fail_dbt true
+  variables set -- chaos_enabled true
 
-# Trigger the pipeline
+# Trigger the pipeline to see faults in action
 gcloud composer environments run $COMPOSER_ENV_NAME \
   --location=$COMPOSER_LOCATION --project=$GCP_PROJECT_ID \
-  dags trigger -- sample_elt_pipeline
+  dags trigger -- raw_to_silver
 
-# Check your email in ~5-10 minutes for 3 alerts:
+# Check your email in ~5-10 minutes for alerts:
 #   1. "Failed DAG Runs" (built-in metric)
 #   2. "Failed Task Instances" (built-in metric)
 #   3. "Error Logs Detected" ⭐ (with dag_id, task_id, exception)
 
-# Reset after testing
+# Increase to 100% to guarantee failures for demo
 gcloud composer environments run $COMPOSER_ENV_NAME \
   --location=$COMPOSER_LOCATION --project=$GCP_PROJECT_ID \
-  variables set -- force_fail_dbt false
+  variables set -- chaos_error_rate 100
+
+# Turn off after testing
+gcloud composer environments run $COMPOSER_ENV_NAME \
+  --location=$COMPOSER_LOCATION --project=$GCP_PROJECT_ID \
+  variables set -- chaos_enabled false
 ```
 
-| Variable | What It Does |
-|---|---|
-| `force_fail_airbyte=true` | Makes `extract_airbyte` task fail |
-| `force_fail_dbt=true` | Makes `run_dbt_transform` task fail |
+| Variable | Default | What It Does |
+|---|---|---|
+| `chaos_enabled` | `false` | Master kill switch for all fault injection |
+| `chaos_error_rate` | `30` | Probability (0–100%) each injection point fires |
+| `chaos_delay_seconds` | `120` | Seconds to sleep for delay injection |
+
+| DAG | Injection Point | Fault Type |
+|---|---|---|
+| `raw_to_silver` | `chaos_pre_merge` | Delay (simulates slow BigQuery) |
+| `raw_to_silver` | `chaos_post_merge` | Failure (simulates post-processing crash) |
+| `silver_to_datamart` | `chaos_check` | Failure (simulates aggregation crash) |
 
 **After triggering a failure, verify alerts at:**
 - 📧 **Email**: Check your inbox (~5-10 min delay)
@@ -250,7 +264,8 @@ da-monitoring-alerting/
 │   ├── sample_elt_pipeline.py         # Main DAG with 5 tasks
 │   └── callbacks.py                   # Shared alerting callbacks (for this sample DAG)
 ├── plugins/
-│   └── global_failure_listener.py     # ⭐ Global listener — covers ALL DAGs automatically
+│   ├── global_failure_listener.py     # ⭐ Global listener — covers ALL DAGs automatically
+│   └── fault_injection.py             # ⭐ Configurable chaos for production DAGs
 ├── scripts/
 │   ├── deploy_dags.sh                 # Deploy DAGs, plugins, and config to Composer
 │   ├── simulate_airbyte_sync.sh       # Simulated Airbyte extraction
@@ -362,3 +377,5 @@ Once you've completed the lab:
 - **Escalation tiers**: Route P0 alerts to PagerDuty and P1 alerts to email
 - **SLA Alerts**: Set `sla=timedelta(...)` on tasks for time-sensitive pipelines (available in Airflow 2.x)
 - **Add exception details**: Extend the log-based metric with more label extractors (e.g., `exception`, `log_url`)
+- **Tune fault injection**: Adjust `chaos_error_rate` to simulate different failure scenarios (e.g., 5% for realistic production, 100% for demos)
+- **Add more injection points**: Import `fault_injection` in other DAGs and add `maybe_fail_task` / `maybe_delay_task` / `maybe_corrupt_query` at any point in the task chain
