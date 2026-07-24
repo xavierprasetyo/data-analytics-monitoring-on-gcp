@@ -25,7 +25,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
             xPos   = 0
             yPos   = 0
             width  = 48
-            height = 2
+            height = 4
             widget = {
               title = "🔄 Datastream Health"
               text = {
@@ -36,7 +36,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 0
-            yPos   = 2
+            yPos   = 4
             width  = 24
             height = 8
             widget = {
@@ -69,7 +69,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 24
-            yPos   = 2
+            yPos   = 4
             width  = 24
             height = 8
             widget = {
@@ -102,7 +102,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 0
-            yPos   = 10
+            yPos   = 12
             width  = 24
             height = 8
             widget = {
@@ -135,7 +135,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 24
-            yPos   = 10
+            yPos   = 12
             width  = 24
             height = 8
             widget = {
@@ -175,9 +175,9 @@ resource "google_monitoring_dashboard" "pipeline_health" {
         [
           {
             xPos   = 0
-            yPos   = 18
+            yPos   = 20
             width  = 48
-            height = 2
+            height = 4
             widget = {
               title = "📊 BigQuery Jobs"
               text = {
@@ -188,7 +188,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 0
-            yPos   = 20
+            yPos   = 24
             width  = 24
             height = 8
             widget = {
@@ -232,7 +232,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 24
-            yPos   = 20
+            yPos   = 24
             width  = 24
             height = 8
             widget = {
@@ -265,7 +265,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 0
-            yPos   = 28
+            yPos   = 32
             width  = 24
             height = 8
             widget = {
@@ -296,7 +296,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 24
-            yPos   = 28
+            yPos   = 32
             width  = 24
             height = 8
             widget = {
@@ -334,9 +334,9 @@ resource "google_monitoring_dashboard" "pipeline_health" {
         [
           {
             xPos   = 0
-            yPos   = 36
+            yPos   = 40
             width  = 48
-            height = 2
+            height = 4
             widget = {
               title = "🎵 Composer Summary"
               text = {
@@ -347,7 +347,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 0
-            yPos   = 38
+            yPos   = 44
             width  = 12
             height = 4
             widget = {
@@ -375,7 +375,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 12
-            yPos   = 38
+            yPos   = 44
             width  = 12
             height = 4
             widget = {
@@ -403,7 +403,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 24
-            yPos   = 38
+            yPos   = 44
             width  = 12
             height = 4
             widget = {
@@ -431,7 +431,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
           },
           {
             xPos   = 36
-            yPos   = 38
+            yPos   = 44
             width  = 12
             height = 4
             widget = {

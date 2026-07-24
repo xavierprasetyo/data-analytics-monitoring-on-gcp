@@ -27,7 +27,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
             xPos   = 0
             yPos   = 0
             width  = 48
-            height = 2
+            height = 4
             widget = {
               title = "⚡ Health Summary"
               text = {
@@ -38,7 +38,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 0
-            yPos   = 2
+            yPos   = 4
             width  = 12
             height = 4
             widget = {
@@ -66,7 +66,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 12
-            yPos   = 2
+            yPos   = 4
             width  = 12
             height = 4
             widget = {
@@ -94,7 +94,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 24
-            yPos   = 2
+            yPos   = 4
             width  = 12
             height = 4
             widget = {
@@ -102,7 +102,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
               scorecard = {
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/dag_bag_size\""
+                    filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/dagbag_size\""
                     aggregation = {
                       alignmentPeriod  = "300s"
                       perSeriesAligner = "ALIGN_MEAN"
@@ -114,7 +114,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 36
-            yPos   = 2
+            yPos   = 4
             width  = 12
             height = 4
             widget = {
@@ -122,7 +122,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
               scorecard = {
                 timeSeriesQuery = {
                   timeSeriesFilter = {
-                    filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/num_queued_or_running_tasks\""
+                    filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/unfinished_task_instances\""
                     aggregation = {
                       alignmentPeriod  = "300s"
                       perSeriesAligner = "ALIGN_MEAN"
@@ -149,9 +149,9 @@ resource "google_monitoring_dashboard" "composer_operational" {
         [
           {
             xPos   = 0
-            yPos   = 6
+            yPos   = 8
             width  = 48
-            height = 2
+            height = 4
             widget = {
               title = "📊 Pipeline Health"
               text = {
@@ -162,7 +162,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 0
-            yPos   = 8
+            yPos   = 12
             width  = 24
             height = 8
             widget = {
@@ -195,7 +195,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 24
-            yPos   = 8
+            yPos   = 12
             width  = 24
             height = 8
             widget = {
@@ -228,7 +228,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 0
-            yPos   = 16
+            yPos   = 20
             width  = 24
             height = 8
             widget = {
@@ -238,7 +238,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/task_duration\""
+                        filter = "resource.type = \"cloud_composer_workflow\" AND metric.type = \"composer.googleapis.com/workflow/task/run_duration\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_PERCENTILE_50"
@@ -251,7 +251,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/task_duration\""
+                        filter = "resource.type = \"cloud_composer_workflow\" AND metric.type = \"composer.googleapis.com/workflow/task/run_duration\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_PERCENTILE_95"
@@ -272,7 +272,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 24
-            yPos   = 16
+            yPos   = 20
             width  = 24
             height = 8
             widget = {
@@ -315,9 +315,9 @@ resource "google_monitoring_dashboard" "composer_operational" {
         [
           {
             xPos   = 0
-            yPos   = 24
+            yPos   = 28
             width  = 48
-            height = 2
+            height = 4
             widget = {
               title = "🔧 Infrastructure Health"
               text = {
@@ -328,7 +328,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 0
-            yPos   = 26
+            yPos   = 32
             width  = 12
             height = 8
             widget = {
@@ -359,7 +359,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 12
-            yPos   = 26
+            yPos   = 32
             width  = 12
             height = 8
             widget = {
@@ -390,7 +390,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 24
-            yPos   = 26
+            yPos   = 32
             width  = 12
             height = 8
             widget = {
@@ -421,7 +421,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 36
-            yPos   = 26
+            yPos   = 32
             width  = 12
             height = 8
             widget = {
@@ -452,7 +452,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 0
-            yPos   = 34
+            yPos   = 40
             width  = 24
             height = 8
             widget = {
@@ -462,7 +462,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/worker/cpu/usage_time\""
+                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/workloads_cpu_quota_usage\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_RATE"
@@ -483,7 +483,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 24
-            yPos   = 34
+            yPos   = 40
             width  = 24
             height = 8
             widget = {
@@ -493,7 +493,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/worker/memory/bytes_used\""
+                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/workload/memory/bytes_used\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_MEAN"
@@ -521,9 +521,9 @@ resource "google_monitoring_dashboard" "composer_operational" {
         [
           {
             xPos   = 0
-            yPos   = 42
+            yPos   = 48
             width  = 48
-            height = 2
+            height = 4
             widget = {
               title = "📦 Capacity & Parsing"
               text = {
@@ -534,7 +534,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 0
-            yPos   = 44
+            yPos   = 52
             width  = 24
             height = 8
             widget = {
@@ -544,7 +544,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/num_queued_or_running_tasks\""
+                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/unfinished_task_instances\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_MEAN"
@@ -565,7 +565,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 24
-            yPos   = 44
+            yPos   = 52
             width  = 24
             height = 8
             widget = {
@@ -575,7 +575,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/dag_bag_size\""
+                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/dagbag_size\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_MEAN"
@@ -596,7 +596,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 0
-            yPos   = 52
+            yPos   = 60
             width  = 24
             height = 8
             widget = {
@@ -627,7 +627,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 24
-            yPos   = 52
+            yPos   = 60
             width  = 24
             height = 8
             widget = {
