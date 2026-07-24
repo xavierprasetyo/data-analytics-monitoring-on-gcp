@@ -84,7 +84,7 @@ with DAG(
                         CAST(region AS STRING) AS region,
                         CAST(created_at AS TIMESTAMP) AS created_at,
                         CAST(updated_at AS TIMESTAMP) AS updated_at
-                    FROM `{PROJECT_ID}.{RAW_DATASET}.orders`
+                    FROM `{PROJECT_ID}.{RAW_DATASET}.public_orders`
                     QUALIFY ROW_NUMBER() OVER (
                         PARTITION BY order_id ORDER BY updated_at DESC
                     ) = 1
