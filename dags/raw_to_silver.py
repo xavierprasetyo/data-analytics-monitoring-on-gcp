@@ -118,7 +118,7 @@ with DAG(
     # Step 3: Log row count
     def log_silver_count(**context):
         from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
-        hook = BigQueryHook(use_legacy_sql=False)
+        hook = BigQueryHook(use_legacy_sql=False, location="US")
         result = hook.get_records(
             sql=f"SELECT COUNT(*) FROM `{PROJECT_ID}.{SILVER_DATASET}.orders`"
         )
