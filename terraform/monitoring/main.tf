@@ -44,3 +44,7 @@ resource "google_project_service" "monitoring_apis" {
 data "google_compute_default_service_account" "default" {
   project = var.project_id
 }
+
+data "google_project" "current" {
+  project_id = var.project_id
+}

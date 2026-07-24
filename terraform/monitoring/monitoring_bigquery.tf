@@ -85,6 +85,13 @@ resource "google_logging_metric" "bq_scheduled_query_failures" {
 # and writes results to the reporting table for review.
 # ---------------------------------------------------------------------------
 
+# IAM: Allow BQ DTS service agent to impersonate the Compute SA
+resource "google_service_account_iam_member" "dts_token_creator" {
+  service_account_id = data.google_compute_default_service_account.default.name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:service-${data.google_project.current.number}@gcp-sa-bigquerydatatransfer.iam.gserviceaccount.com"
+}
+
 resource "google_bigquery_data_transfer_config" "slot_time_report" {
   project                = var.project_id
   display_name           = "Daily Slot-Time Audit"
