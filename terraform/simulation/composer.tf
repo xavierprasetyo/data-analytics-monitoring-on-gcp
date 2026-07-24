@@ -70,3 +70,9 @@ resource "google_project_iam_member" "composer_bq_job_user" {
   role    = "roles/bigquery.jobUser"
   member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
 }
+
+resource "google_project_iam_member" "composer_bq_resource_viewer" {
+  project = var.project_id
+  role    = "roles/bigquery.resourceViewer"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
