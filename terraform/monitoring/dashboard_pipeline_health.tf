@@ -79,7 +79,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "resource.type = \"datastream.googleapis.com/Stream\" AND metric.type = \"datastream.googleapis.com/stream/total_latencies\""
+                        filter = "resource.type = \"datastream.googleapis.com/Stream\" AND metric.type = \"datastream.googleapis.com/stream/freshness\""
                         aggregation = {
                           alignmentPeriod    = "300s"
                           perSeriesAligner   = "ALIGN_MAX"
@@ -275,7 +275,7 @@ resource "google_monitoring_dashboard" "pipeline_health" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "resource.type = \"bigquery_project\" AND metric.type = \"bigquery.googleapis.com/query/scanned_bytes\""
+                        filter = "resource.type = \"global\" AND metric.type = \"bigquery.googleapis.com/query/scanned_bytes\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_SUM"
