@@ -54,3 +54,19 @@ resource "google_composer_environment" "lab" {
     google_project_service.apis,
   ]
 }
+
+# ---------------------------------------------------------------------------
+# IAM — Grant the Composer service account BigQuery access
+# ---------------------------------------------------------------------------
+
+resource "google_project_iam_member" "composer_bq_data_editor" {
+  project = var.project_id
+  role    = "roles/bigquery.dataEditor"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "composer_bq_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
