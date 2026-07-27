@@ -371,6 +371,7 @@ This removes:
 
 Once you've completed the lab:
 
+- **Explore available metrics**: See [docs/available_gcp_metrics.md](docs/available_gcp_metrics.md) for a full reference of built-in GCP metrics you can add to dashboards and alerts
 - **Add Slack notifications**: Set `slack_webhook_url` in `terraform.tfvars` and run `terraform apply` — all 7 alerting policies automatically include it
 - **Customize the dashboard**: Add more widgets or create environment-specific dashboards
 - **Add more runtimes**: Add a Spark task (`DataprocSubmitJobOperator`) or a Cloud Function task

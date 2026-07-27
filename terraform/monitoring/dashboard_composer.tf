@@ -1,12 +1,10 @@
 # ---------------------------------------------------------------------------
 # dashboard_composer.tf — Cloud Monitoring Dashboard for Composer health
 #
-# Migrated from the original dashboard.tf. This is the detailed operational
-# dashboard with 4 sections:
+# Simplified operational dashboard with 3 sections:
 #   1. Health Summary    — Scorecards for at-a-glance status
-#   2. Pipeline Health   — DAG runs, task instances, durations, custom errors
-#   3. Infra Health      — Scheduler, database, webserver, workers
-#   4. Capacity/Parsing  — Queue depth, DAG bag size, parse time, parse errors
+#   2. Pipeline Health   — DAG runs, task instances, custom errors
+#   3. Infrastructure    — Worker resources, DAG parsing
 # ---------------------------------------------------------------------------
 
 resource "google_monitoring_dashboard" "composer_operational" {
@@ -19,7 +17,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
       tiles = concat(
 
         # ================================================================
-        # SECTION 1: HEALTH SUMMARY — Scorecards (row 0, y=0)
+        # SECTION 1: HEALTH SUMMARY — Scorecards (y=0)
         # ================================================================
 
         [
@@ -39,7 +37,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           {
             xPos   = 0
             yPos   = 4
-            width  = 12
+            width  = 16
             height = 4
             widget = {
               title = "Database Health"
@@ -65,9 +63,9 @@ resource "google_monitoring_dashboard" "composer_operational" {
             }
           },
           {
-            xPos   = 12
+            xPos   = 16
             yPos   = 4
-            width  = 12
+            width  = 16
             height = 4
             widget = {
               title = "Scheduler Heartbeat"
@@ -93,9 +91,9 @@ resource "google_monitoring_dashboard" "composer_operational" {
             }
           },
           {
-            xPos   = 24
+            xPos   = 32
             yPos   = 4
-            width  = 12
+            width  = 16
             height = 4
             widget = {
               title = "Total DAGs Loaded"
@@ -113,9 +111,9 @@ resource "google_monitoring_dashboard" "composer_operational" {
             }
           },
           {
-            xPos   = 36
-            yPos   = 4
-            width  = 12
+            xPos   = 0
+            yPos   = 8
+            width  = 24
             height = 4
             widget = {
               title = "Active/Queued Tasks"
@@ -125,7 +123,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
                     filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/unfinished_task_instances\""
                     aggregation = {
                       alignmentPeriod  = "300s"
-                      perSeriesAligner = "ALIGN_MEAN"
+                      perSeriesAligner = "ALIGN_MAX"
                     }
                   }
                 }
@@ -143,13 +141,13 @@ resource "google_monitoring_dashboard" "composer_operational" {
         ],
 
         # ================================================================
-        # SECTION 2: PIPELINE HEALTH — Charts (y=6)
+        # SECTION 2: PIPELINE HEALTH — Charts (y=14)
         # ================================================================
 
         [
           {
             xPos   = 0
-            yPos   = 8
+            yPos   = 14
             width  = 48
             height = 4
             widget = {
@@ -162,7 +160,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 0
-            yPos   = 12
+            yPos   = 18
             width  = 24
             height = 8
             widget = {
@@ -195,7 +193,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 24
-            yPos   = 12
+            yPos   = 18
             width  = 24
             height = 8
             widget = {
@@ -226,54 +224,11 @@ resource "google_monitoring_dashboard" "composer_operational" {
               }
             }
           },
+          # Task Errors — full width since this is the most actionable chart
           {
             xPos   = 0
-            yPos   = 20
-            width  = 24
-            height = 8
-            widget = {
-              title = "Task Duration"
-              xyChart = {
-                dataSets = [
-                  {
-                    timeSeriesQuery = {
-                      timeSeriesFilter = {
-                        filter = "resource.type = \"cloud_composer_workflow\" AND metric.type = \"composer.googleapis.com/workflow/task/run_duration\""
-                        aggregation = {
-                          alignmentPeriod  = "300s"
-                          perSeriesAligner = "ALIGN_PERCENTILE_50"
-                        }
-                      }
-                    }
-                    plotType       = "LINE"
-                    legendTemplate = "p50"
-                  },
-                  {
-                    timeSeriesQuery = {
-                      timeSeriesFilter = {
-                        filter = "resource.type = \"cloud_composer_workflow\" AND metric.type = \"composer.googleapis.com/workflow/task/run_duration\""
-                        aggregation = {
-                          alignmentPeriod  = "300s"
-                          perSeriesAligner = "ALIGN_PERCENTILE_95"
-                        }
-                      }
-                    }
-                    plotType       = "LINE"
-                    legendTemplate = "p95"
-                  }
-                ]
-                timeshiftDuration = "0s"
-                yAxis = {
-                  label = "Duration (seconds)"
-                  scale = "LINEAR"
-                }
-              }
-            }
-          },
-          {
-            xPos   = 24
-            yPos   = 20
-            width  = 24
+            yPos   = 26
+            width  = 48
             height = 8
             widget = {
               title = "Task Errors (Custom Metric)"
@@ -309,17 +264,17 @@ resource "google_monitoring_dashboard" "composer_operational" {
         ],
 
         # ================================================================
-        # SECTION 3: INFRASTRUCTURE HEALTH — Charts (y=24)
+        # SECTION 3: INFRASTRUCTURE — Worker health & DAG parsing (y=34)
         # ================================================================
 
         [
           {
             xPos   = 0
-            yPos   = 28
+            yPos   = 34
             width  = 48
             height = 4
             widget = {
-              title = "🔧 Infrastructure Health"
+              title = "🔧 Infrastructure"
               text = {
                 content = ""
                 format  = "RAW"
@@ -328,101 +283,8 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 0
-            yPos   = 32
-            width  = 12
-            height = 8
-            widget = {
-              title = "Scheduler Heartbeat"
-              xyChart = {
-                dataSets = [
-                  {
-                    timeSeriesQuery = {
-                      timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/scheduler_heartbeat_count\""
-                        aggregation = {
-                          alignmentPeriod  = "300s"
-                          perSeriesAligner = "ALIGN_SUM"
-                        }
-                      }
-                    }
-                    plotType       = "LINE"
-                    legendTemplate = "Heartbeats"
-                  }
-                ]
-                timeshiftDuration = "0s"
-                yAxis = {
-                  label = "Count"
-                  scale = "LINEAR"
-                }
-              }
-            }
-          },
-          {
-            xPos   = 12
-            yPos   = 32
-            width  = 12
-            height = 8
-            widget = {
-              title = "Database Health"
-              xyChart = {
-                dataSets = [
-                  {
-                    timeSeriesQuery = {
-                      timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/database_health\""
-                        aggregation = {
-                          alignmentPeriod  = "300s"
-                          perSeriesAligner = "ALIGN_FRACTION_TRUE"
-                        }
-                      }
-                    }
-                    plotType       = "LINE"
-                    legendTemplate = "Health fraction"
-                  }
-                ]
-                timeshiftDuration = "0s"
-                yAxis = {
-                  label = "Health (0-1)"
-                  scale = "LINEAR"
-                }
-              }
-            }
-          },
-          {
-            xPos   = 24
-            yPos   = 32
-            width  = 12
-            height = 8
-            widget = {
-              title = "Webserver Health"
-              xyChart = {
-                dataSets = [
-                  {
-                    timeSeriesQuery = {
-                      timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/web_server/health\""
-                        aggregation = {
-                          alignmentPeriod  = "300s"
-                          perSeriesAligner = "ALIGN_FRACTION_TRUE"
-                        }
-                      }
-                    }
-                    plotType       = "LINE"
-                    legendTemplate = "Health fraction"
-                  }
-                ]
-                timeshiftDuration = "0s"
-                yAxis = {
-                  label = "Health (0-1)"
-                  scale = "LINEAR"
-                }
-              }
-            }
-          },
-          {
-            xPos   = 36
-            yPos   = 32
-            width  = 12
+            yPos   = 38
+            width  = 24
             height = 8
             widget = {
               title = "Worker Pod Evictions"
@@ -450,58 +312,43 @@ resource "google_monitoring_dashboard" "composer_operational" {
               }
             }
           },
-          {
-            xPos   = 0
-            yPos   = 40
-            width  = 24
-            height = 8
-            widget = {
-              title = "Worker CPU Usage"
-              xyChart = {
-                dataSets = [
-                  {
-                    timeSeriesQuery = {
-                      timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/workloads_cpu_quota_usage\""
-                        aggregation = {
-                          alignmentPeriod  = "300s"
-                          perSeriesAligner = "ALIGN_RATE"
-                        }
-                      }
-                    }
-                    plotType       = "LINE"
-                    legendTemplate = "CPU usage rate"
-                  }
-                ]
-                timeshiftDuration = "0s"
-                yAxis = {
-                  label = "CPU (cores/sec)"
-                  scale = "LINEAR"
-                }
-              }
-            }
-          },
+          # Used vs Limit — when lines converge, you're running out of headroom
           {
             xPos   = 24
-            yPos   = 40
+            yPos   = 38
             width  = 24
             height = 8
             widget = {
-              title = "Worker Memory Usage"
+              title = "Worker Memory: Used vs Limit"
               xyChart = {
                 dataSets = [
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/workload/memory/bytes_used\""
+                        filter = "resource.type = \"cloud_composer_workload\" AND resource.labels.environment_name = \"${var.composer_env_name}\" AND metric.type = \"composer.googleapis.com/workload/memory/bytes_used\""
                         aggregation = {
-                          alignmentPeriod  = "300s"
-                          perSeriesAligner = "ALIGN_MEAN"
+                          alignmentPeriod    = "300s"
+                          perSeriesAligner   = "ALIGN_MEAN"
+                          crossSeriesReducer = "REDUCE_SUM"
                         }
                       }
                     }
                     plotType       = "LINE"
-                    legendTemplate = "Memory used"
+                    legendTemplate = "Used"
+                  },
+                  {
+                    timeSeriesQuery = {
+                      timeSeriesFilter = {
+                        filter = "resource.type = \"cloud_composer_workload\" AND resource.labels.environment_name = \"${var.composer_env_name}\" AND metric.type = \"composer.googleapis.com/workload/memory/quota\""
+                        aggregation = {
+                          alignmentPeriod    = "300s"
+                          perSeriesAligner   = "ALIGN_MEAN"
+                          crossSeriesReducer = "REDUCE_SUM"
+                        }
+                      }
+                    }
+                    plotType       = "LINE"
+                    legendTemplate = "Limit"
                   }
                 ]
                 timeshiftDuration = "0s"
@@ -512,91 +359,9 @@ resource "google_monitoring_dashboard" "composer_operational" {
               }
             }
           },
-        ],
-
-        # ================================================================
-        # SECTION 4: CAPACITY & PARSING — Charts (y=42)
-        # ================================================================
-
-        [
           {
             xPos   = 0
-            yPos   = 48
-            width  = 48
-            height = 4
-            widget = {
-              title = "📦 Capacity & Parsing"
-              text = {
-                content = ""
-                format  = "RAW"
-              }
-            }
-          },
-          {
-            xPos   = 0
-            yPos   = 52
-            width  = 24
-            height = 8
-            widget = {
-              title = "Active/Queued Tasks"
-              xyChart = {
-                dataSets = [
-                  {
-                    timeSeriesQuery = {
-                      timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/unfinished_task_instances\""
-                        aggregation = {
-                          alignmentPeriod  = "300s"
-                          perSeriesAligner = "ALIGN_MEAN"
-                        }
-                      }
-                    }
-                    plotType       = "LINE"
-                    legendTemplate = "Tasks"
-                  }
-                ]
-                timeshiftDuration = "0s"
-                yAxis = {
-                  label = "Task count"
-                  scale = "LINEAR"
-                }
-              }
-            }
-          },
-          {
-            xPos   = 24
-            yPos   = 52
-            width  = 24
-            height = 8
-            widget = {
-              title = "DAG Bag Size"
-              xyChart = {
-                dataSets = [
-                  {
-                    timeSeriesQuery = {
-                      timeSeriesFilter = {
-                        filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/dagbag_size\""
-                        aggregation = {
-                          alignmentPeriod  = "300s"
-                          perSeriesAligner = "ALIGN_MEAN"
-                        }
-                      }
-                    }
-                    plotType       = "LINE"
-                    legendTemplate = "DAGs loaded"
-                  }
-                ]
-                timeshiftDuration = "0s"
-                yAxis = {
-                  label = "DAG count"
-                  scale = "LINEAR"
-                }
-              }
-            }
-          },
-          {
-            xPos   = 0
-            yPos   = 60
+            yPos   = 46
             width  = 24
             height = 8
             widget = {
@@ -627,7 +392,7 @@ resource "google_monitoring_dashboard" "composer_operational" {
           },
           {
             xPos   = 24
-            yPos   = 60
+            yPos   = 46
             width  = 24
             height = 8
             widget = {

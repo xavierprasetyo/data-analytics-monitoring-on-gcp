@@ -177,7 +177,7 @@ resource "google_monitoring_dashboard" "cost_storage" {
                   {
                     timeSeriesQuery = {
                       timeSeriesFilter = {
-                        filter = "resource.type = \"bigquery_project\" AND metric.type = \"bigquery.googleapis.com/query/scanned_bytes_billed\""
+                        filter = "resource.type = \"global\" AND metric.type = \"bigquery.googleapis.com/query/scanned_bytes_billed\""
                         aggregation = {
                           alignmentPeriod  = "300s"
                           perSeriesAligner = "ALIGN_SUM"

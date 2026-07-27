@@ -435,16 +435,10 @@ resource "google_monitoring_dashboard" "pipeline_health" {
             width  = 12
             height = 4
             widget = {
-              title = "Failed DAG Runs"
+              title = "Failed DAG Runs (Total)"
               scorecard = {
                 timeSeriesQuery = {
-                  timeSeriesFilter = {
-                    filter = "resource.type = \"cloud_composer_workflow\" AND metric.type = \"composer.googleapis.com/workflow/run_count\" AND metric.labels.state = \"failed\""
-                    aggregation = {
-                      alignmentPeriod  = "300s"
-                      perSeriesAligner = "ALIGN_SUM"
-                    }
-                  }
+                  timeSeriesQueryLanguage = "fetch cloud_composer_workflow | metric 'composer.googleapis.com/workflow/run_count' | filter (metric.state == 'failed') | align delta(1h) | every 1h | group_by [], [value_sum: sum(val())]"
                 }
                 thresholds = [
                   {
@@ -454,6 +448,31 @@ resource "google_monitoring_dashboard" "pipeline_health" {
                     label     = "Failures!"
                   }
                 ]
+              }
+            }
+          },
+          {
+            xPos   = 0
+            yPos   = 48
+            width  = 48
+            height = 8
+            widget = {
+              title = "Failed DAG Runs by Workflow (Top 10)"
+              xyChart = {
+                dataSets = [
+                  {
+                    timeSeriesQuery = {
+                      timeSeriesQueryLanguage = "fetch cloud_composer_workflow | metric 'composer.googleapis.com/workflow/run_count' | filter (metric.state == 'failed') | align delta(5m) | every 5m | group_by [resource.workflow_name], [value_sum: sum(val())] | top 10"
+                    }
+                    plotType       = "STACKED_BAR"
+                    legendTemplate = "$${resource.labels.workflow_name}"
+                  }
+                ]
+                timeshiftDuration = "0s"
+                yAxis = {
+                  label = "Failed runs"
+                  scale = "LINEAR"
+                }
               }
             }
           },
