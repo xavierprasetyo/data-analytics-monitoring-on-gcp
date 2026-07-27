@@ -1,31 +1,93 @@
-# Cloud Composer Monitoring & Alerting — Learning Lab
+# Data Analytics Monitoring & Alerting — Learning Lab
 
-A hands-on project to learn how to set up native GCP monitoring and alerting for Cloud Composer 3 (managed Airflow 2.11.1) pipelines. All infrastructure is managed with **Terraform** — one `terraform apply` to set up, one `terraform destroy` to tear down.
+A hands-on project to learn how to set up **production-grade GCP monitoring and alerting** for a complete data pipeline: CDC ingestion, BigQuery transformations, notebook execution, and Cloud Composer orchestration. All infrastructure is managed with **Terraform** — two `terraform apply` commands to set up, two `terraform destroy` to tear down.
 
-> **Tech Stack**: Cloud Composer 3 · Apache Airflow 2.11.1 · Image `composer-3-airflow-2.11.1-build.5`
+> **Tech Stack**: Cloud Composer 3 · Apache Airflow 2.11.1 · Image `composer-3-airflow-2.11.1-build.5` · Cloud SQL PostgreSQL 15 · Datastream · BigQuery · Cloud Run (Go) · Vertex AI / Colab Enterprise
 
 ## What You'll Build
 
-A sample ELT pipeline with **5 tasks across 3 runtimes**, wired up with **centralized alerting** that automatically covers **every DAG** without per-DAG callbacks:
+An end-to-end data pipeline with **CDC ingestion → RAW → SILVER → DATAMART** layers, a **notebook execution framework**, and **centralized monitoring** that automatically covers every DAG, BigQuery job, and Datastream stream — without per-DAG callbacks:
 
 ```
-+--------------+    +-------------------+    +------------------+    +------------------+    +----------------+
-|   Airbyte    |--->|  BigQuery Staging |--->|  dbt Transform   |--->|  BQ Validation   |--->|    Success     |
-| (simulated)  |    |   (real query)    |    |   (simulated)    |    |  (real ASSERT)   |    |  Notification  |
-+--------------+    +-------------------+    +------------------+    +------------------+    +----------------+
+ Cloud Run (Go)         Cloud SQL          Datastream (CDC)
+ Load Generator    →    PostgreSQL 15  →   Streaming Replication
+ (5 orders/cycle)       (orders table)     (inserts + updates)
+                                                   |
+                                                   v
++-------------------+    +-------------------+    +-----------------------+
+|   raw_to_silver   |←---|  BigQuery RAW     |←---|   CDC replica tables  |
+|  (every 15 min)   |    | monitoring_lab_raw|    |   (auto-populated)    |
+|  MERGE + dedup    |    +-------------------+    +-----------------------+
++-------------------+
+        |
+        v
++-------------------+    +-----------------------+
+| silver_to_datamart|───→|   Datamart Tables      |
+|    (hourly)       |    |  revenue_by_product    |
+|  Aggregation      |    |  order_status_summary  |
++-------------------+    +-----------------------+
+
++-------------------+
+| notebook_executor |    Executes Colab Enterprise / Vertex AI notebooks
+|  (configurable)   |    via YAML registry — deferrable (frees worker slots)
++-------------------+
+
+        Chaos injection points in all production DAGs
+        (controlled via Airflow Variables)
+                      |
+                      v
++-----------------------------------------------+
+|         Global Failure Listener Plugin         |
+|   Catches ALL task failures across ALL DAGs    |
+|   Emits structured JSON → Cloud Logging        |
++-----------------------------------------------+
+                      |
+                      v
++-----------------------------------------------+
+|        Cloud Monitoring & Alerting Layer        |
+|  Composer alerts · BigQuery alerts · Datastream |
+|  alerts · 3 dashboards · Email / Slack / Pub/Sub|
++-----------------------------------------------+
 ```
 
-### Infrastructure Created by Terraform
+### Two-Module Terraform Architecture
+
+The project uses **two independent Terraform modules** that can be deployed separately:
+
+| Module | Purpose | Key Resources |
+|---|---|---|
+| **`terraform/simulation`** | Provisions the full data pipeline infrastructure | Cloud Composer 3, Cloud SQL, Datastream, BigQuery (3 datasets), Cloud Run, GCS, Pub/Sub, VPC networking |
+| **`terraform/monitoring`** | Reusable monitoring & alerting layer | 3 dashboards, 15+ alert policies, log-based metrics, scheduled queries, notification channels |
+
+> **Why two modules?** The monitoring module is **reusable** — it has zero dependencies on the simulation lab. Point it at any existing GCP project with the right variables and `terraform apply` to get full observability.
+
+### Resources Created
+
+#### Simulation Module (`terraform/simulation`)
 
 | Resource | What It Does |
 |---|---|
 | Cloud Composer 3 | Managed Airflow 2.11.1 environment |
-| BigQuery Dataset | `monitoring_lab` for pipeline data |
-| Pub/Sub Topic + Subscription | Programmatic alert forwarding |
+| Cloud SQL PostgreSQL 15 | Source database with CDC logical replication |
+| Datastream | CDC streaming from Cloud SQL → BigQuery |
+| BigQuery (3 datasets) | `monitoring_lab_raw`, `monitoring_lab_silver`, `monitoring_lab_datamart` |
+| Cloud Run (Go) | Load generator — inserts/updates orders every 5 seconds |
+| GCS Bucket | Data lake storage |
+| Pub/Sub Topic + Subscription | Programmatic alert forwarding + debug subscription |
+| VPC + Private Service Connection | Private networking for Cloud SQL and Datastream |
+
+#### Monitoring Module (`terraform/monitoring`)
+
+| Resource | What It Does |
+|---|---|
 | Email Notification Channel | Email alerts to your inbox |
-| 7 Alerting Policies | Monitors DAG failures, task failures, scheduler health, worker evictions, database health, error logs, DAG parse errors |
-| 2 Log-based Metrics | Counts structured task errors and DAG parse errors |
-| Monitoring Dashboard | Operational health overview with 17 widgets across 4 sections |
+| Slack Notification Channel | (Optional) Slack alerts via webhook |
+| 8 Composer Alerting Policies | DAG failures, task failures, scheduler, workers, database, webserver, error logs, parse errors |
+| 3 BigQuery Alerting Policies | High slot-time jobs, scheduled query failures, data freshness |
+| 4 Datastream Alerting Policies | Throughput stale, unhealthy stream, backfill failures, high replication lag |
+| 3 Log-based Metrics | Composer task errors, DAG parse errors, scheduled query failures |
+| 3 Cloud Monitoring Dashboards | Composer operational health, pipeline health, cost & storage |
+| BigQuery Reporting Dataset | Scheduled queries for slot-time audit and storage comparison |
 
 ---
 
@@ -48,9 +110,9 @@ This is the end-to-end flow from a task failure to you receiving an alert email 
                                     |  Emits structured JSON:
                                     |  {
                                     |    "alert_type": "TASK_FAILURE",
-                                    |    "dag_id": "sample_elt_pipeline",
-                                    |    "task_id": "run_dbt_transform",
-                                    |    "exception": "exit code 1",
+                                    |    "dag_id": "raw_to_silver",
+                                    |    "task_id": "chaos_post_merge",
+                                    |    "exception": "Chaos fault injection",
                                     |    "log_url": "https://...",
                                     |    "timestamp": "2026-05-22T01:42:07Z"
                                     |  }
@@ -112,8 +174,11 @@ This is the end-to-end flow from a task failure to you receiving an alert email 
 | **Log-based metric with label extractors** | Enables Cloud Monitoring to include `dag_id` and `task_id` in alert emails so you know exactly what failed. |
 | **`group_by_fields` in aggregation** | Preserves label values through the aggregation pipeline. Without this, labels collapse to `(null)`. |
 | **Narrow metric filter** (`textPayload=~"alert_type"`) | Only matches our structured JSON, not random stack traces. Prevents `(null)` labels from non-JSON errors. |
+| **Two separate Terraform modules** | Monitoring module is reusable across projects. Deploy simulation once, then point monitoring at any environment. |
 
 ### Alert Policies Summary
+
+#### Composer (8 policies)
 
 | # | Policy Name | Source | What It Detects |
 |---|---|---|---|
@@ -124,8 +189,26 @@ This is the end-to-end flow from a task failure to you receiving an alert email 
 | 5 | Composer - Scheduler Heartbeat Missing | Built-in `scheduler_heartbeat` | Scheduler stopped sending heartbeats |
 | 6 | Composer - Worker Pod Evictions | Built-in `worker_pods_evicted` | Kubernetes worker pods evicted |
 | 7 | Composer - DAG Parse Errors | Custom log-based metric | Broken DAG files (import errors) |
+| 8 | Composer - Webserver Health Degraded | Built-in `webserver_health` | Airflow webserver unhealthy |
 
-> **Policy #1** is the most useful for debugging — it tells you exactly which DAG and task failed, with the exception message. Policies #2-#3 are broader "something failed" alerts. Policies #4-#7 cover infrastructure health.
+#### BigQuery (3 policies)
+
+| # | Policy Name | Source | What It Detects |
+|---|---|---|---|
+| 1 | BigQuery - High Slot-Time Jobs | Built-in `query/execution_times` | Jobs exceeding slot-time threshold |
+| 2 | BigQuery - Scheduled Query Failures | Custom log-based metric | Failed DTS scheduled queries |
+| 3 | BigQuery - Data Freshness Stale | Built-in metric (absent condition) | Dataset not receiving new data |
+
+#### Datastream (4 policies, conditional)
+
+| # | Policy Name | Source | What It Detects |
+|---|---|---|---|
+| 1 | Datastream - Throughput Stale | Built-in metric (absent condition) | Data stopped flowing |
+| 2 | Datastream - Stream Unhealthy | Built-in `stream_health` | Stream in error status |
+| 3 | Datastream - Backfill Failures | Custom log-based metric | Failed backfill operations |
+| 4 | Datastream - High Replication Lag | Built-in `replication_lag` | Lag exceeding threshold (default: 30 min) |
+
+> **Policy #1 (Composer)** is the most useful for debugging — it tells you exactly which DAG and task failed, with the exception message. The Datastream policies are **conditional** — they're only created when `datastream_stream_ids` is non-empty.
 
 ---
 
@@ -134,70 +217,80 @@ This is the end-to-end flow from a task failure to you receiving an alert email 
 1. **GCP Project** with billing enabled
 2. **gcloud CLI** installed and authenticated
 3. **Terraform** >= 1.5.0 installed
-4. **Permissions**: Composer Admin, Monitoring Admin, Logging Admin, Pub/Sub Admin, BigQuery Admin
+4. **Permissions**: Composer Admin, Monitoring Admin, Logging Admin, Pub/Sub Admin, BigQuery Admin, Cloud SQL Admin, Datastream Admin, Compute Network Admin
 
 ---
 
 ## Quick Start
 
-### Step 1: Configure
+### Step 1: Provision the Simulation Environment
 
 ```bash
-cd terraform
+cd terraform/simulation
 
-# Edit terraform.tfvars — update alert_email with your email
+# Edit terraform.tfvars — update alert_email and cloudsql_db_password
 vim terraform.tfvars
-```
 
-The only value you **must** change is `alert_email`. Optionally set `slack_webhook_url` to enable Slack alerts.
-
-### Step 2: Provision Infrastructure
-
-```bash
-cd terraform
-
-# Initialize Terraform
+# Initialize and apply
 terraform init
-
-# Preview what will be created
 terraform plan
-
-# Create everything (~25 minutes for Composer)
 terraform apply
 ```
 
 > **Note:** Cloud Composer takes ~20-25 minutes to provision. Go grab a coffee ☕
 
-After completion, Terraform will output:
+After completion, Terraform outputs will include:
 - **Airflow UI URL** — bookmark this
 - **GCS bucket** — where DAGs are stored
-- **All alerting policy names** — verify in Cloud Monitoring console
+- **Composer environment name** — for DAG deployment
+- **Monitoring module inputs** — copy into `terraform/monitoring/terraform.tfvars`
 
-### Step 3: Deploy DAGs
+### Step 2: Set Up the Data Pipeline
 
 ```bash
-# Set environment variables
-export GCP_PROJECT_ID="project-sandbox-357505"
-export COMPOSER_ENV_NAME="monitoring-lab-composer"
-export COMPOSER_LOCATION="us-central1"
-
-# Deploy DAGs, scripts, SQL, plugins, and set Airflow variables
-bash scripts/deploy_dags.sh
+# Run the pipeline setup script (builds loadgen, configures Datastream, deploys DAGs)
+bash scripts/setup_pipeline.sh
 ```
 
-### Step 4: Test a Successful Run
+This script:
+1. Builds and deploys the Go load generator to Cloud Run
+2. Configures the PostgreSQL replication slot for Datastream
+3. Starts the Datastream CDC stream
+4. Deploys DAGs and plugins to Cloud Composer
+5. Unpauses the DAGs
+
+### Step 3: Deploy the Monitoring Layer
+
+```bash
+cd terraform/monitoring
+
+# Copy values from simulation output (or edit manually)
+vim terraform.tfvars
+
+# Initialize and apply
+terraform init
+terraform plan
+terraform apply
+```
+
+### Step 4: Verify Pipeline Runs
 
 1. Open the **Airflow UI** (URL from Terraform output)
-2. Find the `sample_elt_pipeline` DAG
-3. **Unpause** it (toggle on)
-4. Click **Trigger DAG** to start a manual run
-5. Watch all 5 tasks complete with ✅ green status
+2. Find the `raw_to_silver` DAG
+3. Verify it is **unpaused** and running on schedule (every 15 minutes)
+4. Check `silver_to_datamart` is also running (hourly)
+5. Watch tasks complete with ✅ green status
 
 ### Step 5: Test Failure Alerts 🔥
 
-Fault injection is built directly into the production DAGs (`raw_to_silver`, `silver_to_datamart`), controlled via Airflow Variables:
+Fault injection is built directly into the production DAGs (`raw_to_silver`, `silver_to_datamart`, `notebook_executor`), controlled via Airflow Variables:
 
 ```bash
+# Set environment variables
+export GCP_PROJECT_ID="your-project-id"
+export COMPOSER_ENV_NAME="monitoring-lab-composer"
+export COMPOSER_LOCATION="us-central1"
+
 # Enable chaos with default 30% error rate
 gcloud composer environments run $COMPOSER_ENV_NAME \
   --location=$COMPOSER_LOCATION --project=$GCP_PROJECT_ID \
@@ -235,12 +328,13 @@ gcloud composer environments run $COMPOSER_ENV_NAME \
 | `raw_to_silver` | `chaos_pre_merge` | Delay (simulates slow BigQuery) |
 | `raw_to_silver` | `chaos_post_merge` | Failure (simulates post-processing crash) |
 | `silver_to_datamart` | `chaos_check` | Failure (simulates aggregation crash) |
+| `notebook_executor` | `chaos_<notebook_name>` | Failure (before each notebook execution) |
 
 **After triggering a failure, verify alerts at:**
 - 📧 **Email**: Check your inbox (~5-10 min delay)
-- 📊 **Cloud Monitoring**: [Alerting Console](https://console.cloud.google.com/monitoring/alerting?project=project-sandbox-357505)
-- 📋 **Cloud Logging**: [Logs Explorer](https://console.cloud.google.com/logs?project=project-sandbox-357505)
-- 📬 **Pub/Sub**: `gcloud pubsub subscriptions pull composer-alerts-debug-sub --project=project-sandbox-357505 --auto-ack --limit=5`
+- 📊 **Cloud Monitoring**: [Alerting Console](https://console.cloud.google.com/monitoring/alerting)
+- 📋 **Cloud Logging**: [Logs Explorer](https://console.cloud.google.com/logs)
+- 📬 **Pub/Sub**: `gcloud pubsub subscriptions pull composer-alerts-debug-sub --auto-ack --limit=5`
 
 ---
 
@@ -248,39 +342,94 @@ gcloud composer environments run $COMPOSER_ENV_NAME \
 
 ```
 da-monitoring-alerting/
-├── README.md                          # This file
+├── README.md                              # This file
+├── COST_ANALYSIS.md                       # Cost breakdown for monitoring resources
+├── DEPLOYMENT_GUIDE.md                    # Full step-by-step deployment guide
+│
 ├── terraform/
-│   ├── main.tf                        # Provider config + API enablement
-│   ├── variables.tf                   # Input variables
-│   ├── terraform.tfvars               # Your configuration values
-│   ├── composer.tf                    # Cloud Composer 3 (Airflow 2.11.1)
-│   ├── bigquery.tf                    # BigQuery dataset
-│   ├── monitoring.tf                  # Notification channels + 5 alerting policies
-│   ├── dashboard.tf                   # Cloud Monitoring operational health dashboard
-│   ├── logging.tf                     # 2 log-based metrics + 2 alerting policies
-│   ├── pubsub.tf                      # Pub/Sub topic + debug subscription
-│   └── outputs.tf                     # Useful outputs
+│   ├── simulation/                        # Data pipeline infrastructure
+│   │   ├── main.tf                        # Provider config + API enablement
+│   │   ├── variables.tf                   # Input variables
+│   │   ├── terraform.tfvars               # Your configuration values
+│   │   ├── composer.tf                    # Cloud Composer 3 (Airflow 2.11.1)
+│   │   ├── cloudsql.tf                    # Cloud SQL PostgreSQL 15 (CDC source)
+│   │   ├── datastream.tf                  # Datastream CDC (Cloud SQL → BigQuery)
+│   │   ├── bigquery.tf                    # BigQuery datasets (raw, silver, datamart)
+│   │   ├── cloudrun.tf                    # Cloud Run load generator service
+│   │   ├── gcs.tf                         # GCS data lake bucket
+│   │   ├── pubsub.tf                      # Pub/Sub topic + debug subscription
+│   │   ├── networking.tf                  # VPC, private service connection
+│   │   └── outputs.tf                     # Resource names for monitoring module
+│   │
+│   └── monitoring/                        # ⭐ Reusable monitoring & alerting layer
+│       ├── main.tf                        # Provider config + API enablement
+│       ├── variables.tf                   # Input variables (service-specific optional)
+│       ├── terraform.tfvars               # Your configuration values
+│       ├── monitoring_channels.tf         # Email + Slack notification channels
+│       ├── monitoring_composer.tf         # 8 Composer alert policies + 2 log-based metrics
+│       ├── monitoring_bigquery.tf         # 3 BigQuery alert policies + scheduled queries
+│       ├── monitoring_datastream.tf       # 4 Datastream alert policies (conditional)
+│       ├── dashboard_composer.tf          # Composer operational health dashboard
+│       ├── dashboard_pipeline_health.tf   # Pipeline health dashboard
+│       ├── dashboard_cost_storage.tf      # Cost & storage dashboard
+│       └── outputs.tf                     # Alert policy names + dashboard IDs
+│
 ├── dags/
-│   ├── sample_elt_pipeline.py         # Main DAG with 5 tasks
-│   └── callbacks.py                   # Shared alerting callbacks (for this sample DAG)
+│   ├── raw_to_silver.py                   # RAW → SILVER transformation (every 15 min)
+│   ├── silver_to_datamart.py              # SILVER → DATAMART aggregation (hourly)
+│   ├── chaos_monkey.py                    # Standalone failure generator (paused by default)
+│   ├── notebook_executor.py               # ⭐ Generic notebook execution framework (deferrable)
+│   └── config/
+│       └── notebooks.yaml                 # Notebook registry for notebook_executor
+│
+├── notebooks/
+│   └── orders_report.ipynb                # Orders pipeline report notebook
+│
 ├── plugins/
-│   ├── global_failure_listener.py     # ⭐ Global listener — covers ALL DAGs automatically
-│   └── fault_injection.py             # ⭐ Configurable chaos for production DAGs
+│   ├── global_failure_listener.py         # ⭐ Global listener — covers ALL DAGs automatically
+│   ├── fault_injection.py                 # ⭐ Configurable chaos for production DAGs
+│   └── notebook_execution_trigger.py      # Deferrable trigger for Vertex AI notebook execution
+│
+├── loadgen/
+│   ├── main.go                            # Go load generator (inserts/updates orders)
+│   ├── Dockerfile                         # Container image for Cloud Run
+│   ├── go.mod                             # Go module definition
+│   └── go.sum                             # Go dependency checksums
+│
 ├── scripts/
-│   ├── deploy_dags.sh                 # Deploy DAGs, plugins, and config to Composer
-│   ├── simulate_airbyte_sync.sh       # Simulated Airbyte extraction
-│   └── simulate_dbt_run.sh            # Simulated dbt transformation
-├── sql/
-│   ├── load_staging.sql               # BQ: load from Stack Overflow public dataset
-│   └── validate_data.sql              # BQ: data quality checks (row count, NULL checks)
-├── monitoring/                        # Shell script reference (alternative to Terraform)
-│   ├── setup_notification_channels.sh
-│   ├── setup_alerting_policies.sh
-│   ├── setup_log_based_metrics.sh
-│   └── teardown.sh
-└── tests/
-    └── trigger_failures.sh            # Interactive failure trigger
+│   ├── deploy_dags.sh                     # Deploy DAGs, plugins, and config to Composer
+│   └── setup_pipeline.sh                  # End-to-end pipeline setup (loadgen, Datastream, DAGs)
+│
+├── tests/
+│   ├── test_notebook_executor.py          # Unit tests for notebook executor
+│   └── trigger_failures.sh               # Interactive failure trigger
+│
+└── docs/
+    ├── available_gcp_metrics.md           # Full reference of built-in GCP metrics
+    ├── composer_monitoring_guide.md       # How Cloud Composer monitoring works
+    ├── design_decisions.md                # Key technical decisions and rationale
+    └── pipeline_architecture.png          # Architecture diagram
 ```
+
+---
+
+## Notebook Executor Framework
+
+The `notebook_executor` DAG provides a **generic, deferrable notebook execution framework** that solves three pain points with native BQ Scheduled Notebooks:
+
+| Pain Point | How notebook_executor Solves It |
+|---|---|
+| No alerting on failure | Runs as Composer tasks → covered by global failure listener → triggers Cloud Monitoring alerts |
+| Hard to check logs | Output captured in Airflow UI via XCom — no need to download from GCS |
+| Can't rerun with same params | Use Airflow's "Clear task" to rerun any notebook instantly |
+
+### How It Works
+
+1. Register notebooks in `dags/config/notebooks.yaml` — no DAG code changes needed
+2. The DAG reads the YAML at parse time and creates a task per notebook
+3. Each task submits the notebook to Colab Enterprise / Vertex AI, then **defers** to an async trigger
+4. The trigger polls in Airflow's triggerer process — **worker slots are freed** during notebook execution
+5. Failures are caught by the global listener and trigger the same alert flow as any other DAG
 
 ---
 
@@ -336,34 +485,53 @@ Issues discovered during development and testing:
 | **`schedule_interval` deprecated** | DeprecationWarning | Use `schedule` parameter (supported since Airflow 2.4) |
 | **Listener import path** | `ModuleNotFoundError: airflow.listeners.hookimpl` | Use `from airflow.listeners import hookimpl` (works since 2.6) |
 | **SLA feature available** | N/A — SLA works in Airflow 2.x | Set `sla=timedelta(...)` on tasks for duration alerts |
-| **BashOperator template rendering** | `TemplateNotFound: 'bash /path/script.sh'` | Add trailing space: `bash_command="bash /path/script.sh "` |
 | **BQ TIMESTAMP vs DATE** | `No matching signature for operator >=` | Use `TIMESTAMP_SUB(CURRENT_TIMESTAMP(), ...)` not `DATE_SUB(CURRENT_DATE(), ...)` |
 | **Context key changes** | `KeyError: 'logical_date'` | Use `context.get('logical_date', context.get('execution_date', ...))` |
 | **Composer 3 metric names** | Alert policies not firing | DAG Runs: `workflow/run_count` on `cloud_composer_workflow` resource |
-| **SQL read at parse time** | SQL changes not picked up | `Path().read_text()` runs at DAG parse time; bump DAG version to force re-parse |
 | **Log metric label extraction** | `(null)` in alert emails | Narrow metric filter + add `group_by_fields` to aggregation |
-| **SO public dataset frozen** | 0 rows loaded | Data ends Sept 2022; removed date filter |
 
 ---
 
 ## Cleanup
 
-Tear down **everything** with one command:
+Tear down **everything** in reverse order:
 
 ```bash
-cd terraform
+# 1. Remove monitoring first
+cd terraform/monitoring
+terraform destroy
+
+# 2. Then remove the simulation environment
+cd ../simulation
 terraform destroy
 ```
 
 This removes:
 - Cloud Composer environment
-- BigQuery dataset (including all tables)
-- All alerting policies
+- Cloud SQL instance
+- Datastream stream and connection profiles
+- BigQuery datasets (including all tables)
+- Cloud Run load generator service
+- All alerting policies and dashboards
 - All notification channels
-- All log-based metrics
+- All log-based metrics and scheduled queries
 - Pub/Sub topic and subscription
+- GCS buckets
+- VPC networking
 
-> **Note:** Composer teardown also takes ~15-20 minutes.
+> **Note:** Composer teardown takes ~15-20 minutes. Cloud SQL and Datastream take ~5-10 minutes.
+
+---
+
+## Additional Documentation
+
+| Document | Description |
+|---|---|
+| [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) | Full step-by-step deployment guide for a new GCP project |
+| [COST_ANALYSIS.md](COST_ANALYSIS.md) | Cost breakdown for the monitoring & alerting layer |
+| [docs/available_gcp_metrics.md](docs/available_gcp_metrics.md) | Full reference of built-in GCP metrics for dashboards and alerts |
+| [docs/composer_monitoring_guide.md](docs/composer_monitoring_guide.md) | How Cloud Composer monitoring works (global listener + built-in metrics) |
+| [docs/design_decisions.md](docs/design_decisions.md) | Key technical decisions and rationale |
 
 ---
 
@@ -371,12 +539,13 @@ This removes:
 
 Once you've completed the lab:
 
-- **Explore available metrics**: See [docs/available_gcp_metrics.md](docs/available_gcp_metrics.md) for a full reference of built-in GCP metrics you can add to dashboards and alerts
-- **Add Slack notifications**: Set `slack_webhook_url` in `terraform.tfvars` and run `terraform apply` — all 7 alerting policies automatically include it
-- **Customize the dashboard**: Add more widgets or create environment-specific dashboards
+- **Add Slack notifications**: Set `slack_webhook_url` in `terraform/monitoring/terraform.tfvars` and run `terraform apply` — all alerting policies automatically include it
+- **Customize dashboards**: Add more widgets or create environment-specific dashboards
+- **Add more notebook executions**: Add entries to `dags/config/notebooks.yaml` — no DAG code changes needed
 - **Add more runtimes**: Add a Spark task (`DataprocSubmitJobOperator`) or a Cloud Function task
 - **Escalation tiers**: Route P0 alerts to PagerDuty and P1 alerts to email
 - **SLA Alerts**: Set `sla=timedelta(...)` on tasks for time-sensitive pipelines (available in Airflow 2.x)
 - **Add exception details**: Extend the log-based metric with more label extractors (e.g., `exception`, `log_url`)
 - **Tune fault injection**: Adjust `chaos_error_rate` to simulate different failure scenarios (e.g., 5% for realistic production, 100% for demos)
 - **Add more injection points**: Import `fault_injection` in other DAGs and add `maybe_fail_task` / `maybe_delay_task` / `maybe_corrupt_query` at any point in the task chain
+- **Monitor the monitoring module**: Apply the monitoring module to a second project to see how it works as a reusable component
