@@ -1,5 +1,5 @@
 """
-notebook_executor.py — Generic Notebook Execution DAG
+notebook_executor.py — Generic Notebook Execution DAG (Deferrable)
 
 A reusable Composer DAG that executes BQ/Colab Enterprise notebooks,
 solving 3 pain points with native BQ Scheduled Notebooks:
@@ -10,18 +10,16 @@ solving 3 pain points with native BQ Scheduled Notebooks:
 Notebooks are registered in dags/config/notebooks.yaml. Engineers add
 entries there — no DAG code changes needed.
 
-Usage:
-  1. Upload notebooks to GCS
-  2. Add entries to dags/config/notebooks.yaml
-  3. Deploy DAG to Composer
-  4. Notebooks run on their defined schedules
-  5. Failures trigger Composer alerts with dag_id + task_id context
-  6. Rerun: Airflow UI → Clear failed task → same params
-
 Architecture:
-  - Composer DAG triggers notebook execution via Vertex AI API
-  - Actual compute runs on Colab Enterprise (not Composer workers)
-  - Composer only handles orchestration (lightweight API calls + polling)
+  - Uses Airflow's deferrable operator pattern (Airflow 2.2+)
+  - Operator submits notebook execution job → defers to async trigger
+  - Trigger polls Vertex AI operation in the triggerer process
+  - Worker slot is FREE while notebook executes on Colab Enterprise
+  - No zombie tasks, no blocked workers
+
+Fault Injection:
+  This DAG includes a chaos injection point before each notebook execution,
+  controlled via Airflow Variables (chaos_enabled, chaos_error_rate).
 """
 
 import json
@@ -29,11 +27,17 @@ import logging
 import os
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 import yaml
 from airflow import DAG
+from airflow.exceptions import TaskDeferred
+from airflow.models import BaseOperator
 from airflow.operators.python import PythonOperator
 from airflow.utils.dates import days_ago
+
+from fault_injection import maybe_fail_task
+from notebook_execution_trigger import NotebookExecutionTrigger
 
 log = logging.getLogger(__name__)
 
@@ -57,89 +61,183 @@ def load_notebook_config():
 
 
 # ---------------------------------------------------------------------------
-# Notebook execution function
+# Deferrable Notebook Execution Operator
 # ---------------------------------------------------------------------------
 
 
-def execute_notebook(
-    notebook_gcs_uri: str,
-    output_gcs_folder: str,
-    params: dict | None = None,
-    timeout_seconds: int = 3600,
-    **context,
-):
+class NotebookExecutionOperator(BaseOperator):
     """
-    Execute a notebook via Vertex AI NotebookService API.
+    Deferrable operator that executes a notebook via Vertex AI.
 
-    The actual compute runs on Colab Enterprise infrastructure, not on
-    Composer workers. This function only submits the job and polls for
-    completion.
+    Phase 1 (execute): Submits the notebook execution job to Vertex AI,
+    then defers to a trigger that polls the operation asynchronously.
+    The worker slot is freed immediately.
 
-    Args:
-        notebook_gcs_uri: GCS URI of the notebook (gs://bucket/path/notebook.ipynb)
-        output_gcs_folder: GCS folder for execution output
-        params: Dictionary of parameters to pass to the notebook
-        timeout_seconds: Maximum execution time before timeout
-        context: Airflow context (injected automatically)
+    Phase 2 (execute_complete): Resumes when the trigger fires,
+    processes the result, and pushes output to XCom.
     """
-    from google.cloud import aiplatform_v1
 
-    project_id = os.environ.get("GCP_PROJECT_ID", context["var"]["value"].get("project_id", ""))
-    region = os.environ.get("COMPOSER_LOCATION", "us-central1")
+    template_fields = ("notebook_gcs_uri", "output_gcs_folder", "params")
 
-    # Render parameters with Airflow template values
-    rendered_params = {}
-    if params:
-        for key, value in params.items():
-            rendered_params[key] = str(value)
+    def __init__(
+        self,
+        notebook_gcs_uri: str,
+        output_gcs_folder: str,
+        params: dict | None = None,
+        timeout_seconds: int = 3600,
+        poll_interval: int = 30,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.notebook_gcs_uri = notebook_gcs_uri
+        self.output_gcs_folder = output_gcs_folder
+        self.params = params or {}
+        self.timeout_seconds = timeout_seconds
+        self.poll_interval = poll_interval
 
-    log.info(
-        "Executing notebook: %s with params: %s",
-        notebook_gcs_uri,
-        json.dumps(rendered_params, indent=2),
-    )
+    def execute(self, context: dict) -> None:
+        """
+        Submit the notebook execution job and defer to the trigger.
 
-    # Create the notebook execution job
-    client = aiplatform_v1.NotebookServiceClient(
-        client_options={"api_endpoint": f"{region}-aiplatform.googleapis.com"}
-    )
+        Uses the REST API directly to avoid the GAPIC client blocking
+        on the LRO. The worker slot is freed in ~2 seconds.
+        """
+        import google.auth
+        import google.auth.transport.requests
+        import requests as http_requests
 
-    parent = f"projects/{project_id}/locations/{region}"
+        project_id = os.environ.get(
+            "GCP_PROJECT_ID",
+            context["var"]["value"].get("project_id", ""),
+        )
+        region = os.environ.get("COMPOSER_LOCATION", "us-central1")
 
-    notebook_execution_job = aiplatform_v1.NotebookExecutionJob(
-        gcs_notebook_source=aiplatform_v1.GcsNotebookSource(
-            uri=notebook_gcs_uri,
-        ),
-        gcs_output_uri=output_gcs_folder,
-        execution_timeout={"seconds": timeout_seconds},
-    )
+        log.info(
+            "Submitting notebook execution: %s with params: %s",
+            self.notebook_gcs_uri,
+            json.dumps(self.params, indent=2),
+        )
 
-    operation = client.create_notebook_execution_job(
-        parent=parent,
-        notebook_execution_job=notebook_execution_job,
-    )
+        runtime_template = os.environ.get(
+            "NOTEBOOK_RUNTIME_TEMPLATE",
+            f"projects/{project_id}/locations/{region}/notebookRuntimeTemplates/monitoring-lab-runtime-v2",
+        )
 
-    log.info("Notebook execution job submitted. Waiting for completion...")
+        # Build the request body
+        display_name = f"notebook-executor-{self.task_id}-{context['ts_nodash']}"
 
-    # Wait for completion
-    result = operation.result(timeout=timeout_seconds + 300)  # Extra buffer for API overhead
+        # Use REST API directly — returns immediately with operation name
+        credentials, _ = google.auth.default()
+        auth_req = google.auth.transport.requests.Request()
+        credentials.refresh(auth_req)
 
-    # Check result
-    if result.status.state.name in ("FAILED", "CANCELLED"):
-        error_msg = f"Notebook execution failed: {result.status.message}"
-        log.error(error_msg)
-        raise RuntimeError(error_msg)
+        # Derive the service account from the credentials
+        svc_account = getattr(credentials, "service_account_email", None)
+        if not svc_account or svc_account == "default":
+            # Fall back to looking up via projects API
+            proj_resp = http_requests.get(
+                f"https://cloudresourcemanager.googleapis.com/v1/projects/{project_id}",
+                headers={"Authorization": f"Bearer {credentials.token}"},
+                timeout=10,
+            )
+            if proj_resp.status_code == 200:
+                proj_num = proj_resp.json().get("projectNumber", "")
+                svc_account = f"{proj_num}-compute@developer.gserviceaccount.com"
 
-    log.info(
-        "Notebook execution completed successfully. Output: %s",
-        result.gcs_output_uri,
-    )
+        body = {
+            "display_name": display_name,
+            "gcs_notebook_source": {
+                "uri": self.notebook_gcs_uri,
+            },
+            "notebook_runtime_template_resource_name": runtime_template,
+            "gcs_output_uri": self.output_gcs_folder,
+            "execution_timeout": f"{self.timeout_seconds}s",
+            "service_account": svc_account,
+        }
 
-    # Push output URI to XCom for visibility in Airflow UI
-    context["ti"].xcom_push(key="output_uri", value=result.gcs_output_uri)
-    context["ti"].xcom_push(key="execution_job_name", value=result.name)
+        url = (
+            f"https://{region}-aiplatform.googleapis.com/v1/"
+            f"projects/{project_id}/locations/{region}/notebookExecutionJobs"
+        )
 
-    return result.gcs_output_uri
+        response = http_requests.post(
+            url,
+            json=body,
+            headers={
+                "Authorization": f"Bearer {credentials.token}",
+                "Content-Type": "application/json",
+            },
+            timeout=30,  # HTTP timeout, not execution timeout
+        )
+
+        if response.status_code not in (200, 201):
+            error_msg = f"Failed to create notebook execution job: {response.status_code} {response.text}"
+            log.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        operation_data = response.json()
+        operation_name = operation_data.get("name", "")
+
+        log.info(
+            "Notebook execution job submitted (operation: %s). "
+            "Deferring to trigger — worker slot is now FREE.",
+            operation_name,
+        )
+
+        # Defer to the trigger — frees the worker slot immediately
+        raise TaskDeferred(
+            trigger=NotebookExecutionTrigger(
+                operation_name=operation_name,
+                project_id=project_id,
+                region=region,
+                poll_interval=self.poll_interval,
+                timeout=self.timeout_seconds,
+            ),
+            method_name="execute_complete",
+        )
+
+    def execute_complete(self, context: dict, event: dict[str, Any]) -> str:
+        """
+        Handle the trigger event when the notebook execution completes.
+
+        This method runs briefly on a worker to process the result.
+        """
+        status = event.get("status", "unknown")
+        operation_name = event.get("operation_name", "unknown")
+
+        if status == "success":
+            output_uri = event.get("output_uri", "")
+            job_name = event.get("job_name", "")
+
+            log.info(
+                "Notebook execution completed successfully. Output: %s, Job: %s",
+                output_uri, job_name,
+            )
+
+            # Push to XCom for visibility in Airflow UI
+            context["ti"].xcom_push(key="output_uri", value=output_uri)
+            context["ti"].xcom_push(key="execution_job_name", value=job_name)
+
+            return output_uri
+
+        elif status == "timeout":
+            error_msg = f"Notebook execution timed out: {event.get('message', '')}"
+            log.error(error_msg)
+            raise TimeoutError(error_msg)
+
+        elif status == "failed":
+            error_msg = (
+                f"Notebook execution failed "
+                f"(state={event.get('job_state', 'N/A')}): "
+                f"{event.get('message', 'unknown error')}"
+            )
+            log.error(error_msg)
+            raise RuntimeError(error_msg)
+
+        else:
+            error_msg = f"Unexpected trigger event status: {status} — {event}"
+            log.error(error_msg)
+            raise RuntimeError(error_msg)
 
 
 # ---------------------------------------------------------------------------
@@ -163,21 +261,32 @@ if notebooks:
         dag_id="notebook_executor",
         default_args=default_args,
         description="Executes registered BQ/Colab Enterprise notebooks with alerting, log visibility, and rerun support",
-        schedule=None,  # Individual tasks are triggered by their own schedules
+        schedule="@hourly",
         start_date=days_ago(1),
         catchup=False,
-        tags=["notebooks", "monitoring-lab"],
+        tags=["data-pipeline", "notebooks", "monitoring-lab"],
     ) as dag:
         for nb in notebooks:
-            task = PythonOperator(
+            # Chaos — random failure before notebook execution
+            chaos_task = PythonOperator(
+                task_id=f"chaos_pre_{nb['name']}",
+                python_callable=maybe_fail_task,
+                op_kwargs={"label": f"notebook_executor.pre_{nb['name']}"},
+            )
+
+            # Execute the notebook via Vertex AI (DEFERRABLE)
+            execute_task = NotebookExecutionOperator(
                 task_id=f"run_{nb['name']}",
-                python_callable=execute_notebook,
-                op_kwargs={
-                    "notebook_gcs_uri": nb["gcs_uri"],
-                    "output_gcs_folder": nb.get("output_folder", "gs://{{ var.value.project_id }}-notebook-outputs/"),
-                    "params": nb.get("params", {}),
-                    "timeout_seconds": nb.get("timeout_seconds", 3600),
-                },
+                notebook_gcs_uri=nb["gcs_uri"],
+                output_gcs_folder=nb.get(
+                    "output_folder",
+                    "gs://{{ var.value.project_id }}-monitoring-lab-notebooks/outputs/",
+                ),
+                params=nb.get("params", {}),
+                timeout_seconds=nb.get("timeout_seconds", 3600),
+                poll_interval=30,
                 retries=nb.get("retries", 1),
                 retry_delay=timedelta(minutes=nb.get("retry_delay_min", 5)),
             )
+
+            chaos_task >> execute_task

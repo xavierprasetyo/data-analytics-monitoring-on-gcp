@@ -85,7 +85,7 @@ Cloud Composer metrics use two resource types:
 | Status | Metric Type | Description | Labels | Recommended Aligner |
 |--------|-------------|-------------|--------|---------------------|
 | ⬜ | `composer.googleapis.com/environment/scheduler/running_dags` | Number of running DAGs | — | `ALIGN_MEAN` |
-| ⬜ | `composer.googleapis.com/environment/scheduler/zombies_killed` | Number of zombie tasks killed | — | `ALIGN_SUM` |
+| ✅ | `composer.googleapis.com/environment/scheduler/zombies_killed` | Number of zombie tasks killed | — | `ALIGN_SUM` |
 
 ---
 

@@ -21,22 +21,13 @@
 # ---------------------------------------------------------------------------
 
 notebooks:
-  # Example: Daily orders report notebook
-  # - name: orders_report
-  #   gcs_uri: gs://my-bucket/notebooks/orders_report.ipynb
-  #   output_folder: gs://my-bucket/notebook-outputs/orders/
-  #   params:
-  #     date: "{{ ds }}"
-  #     project_id: "{{ var.value.project_id }}"
-  #   retries: 2
-  #   retry_delay_min: 10
-  #   timeout_seconds: 1800
-
-  # Example: Weekly aggregation notebook
-  # - name: weekly_aggregation
-  #   gcs_uri: gs://my-bucket/notebooks/weekly_agg.ipynb
-  #   output_folder: gs://my-bucket/notebook-outputs/weekly/
-  #   params:
-  #     week_start: "{{ macros.ds_add(ds, -7) }}"
-  #   retries: 1
-  #   timeout_seconds: 3600
+  # Orders pipeline report — runs data quality checks and revenue summary
+  - name: orders_report
+    gcs_uri: "gs://{{ var.value.project_id }}-monitoring-lab-notebooks/orders_report.ipynb"
+    output_folder: "gs://{{ var.value.project_id }}-monitoring-lab-notebooks/outputs/orders_report/"
+    params:
+      date: "{{ ds }}"
+      project_id: "{{ var.value.project_id }}"
+    retries: 2
+    retry_delay_min: 5
+    timeout_seconds: 1800

@@ -123,14 +123,14 @@ When a task fails, the listener emits an ERROR-level log with this JSON structur
 
 ### Relationship to Per-DAG Callbacks
 
-The project also includes per-DAG callbacks in [`dags/callbacks.py`](../dags/callbacks.py) (used by [`dags/sample_elt_pipeline.py`](../dags/sample_elt_pipeline.py)):
+The global listener replaces the need for per-DAG `on_failure_callback` functions:
 
 | Scenario | What Fires |
-|----------|-----------|
+|----------|-----------| 
 | DAG **has** `on_failure_callback` | **Both** the callback AND the global listener fire. Cloud Monitoring deduplicates via `autoClose` windows. |
 | DAG **does NOT have** `on_failure_callback` | **Only** the global listener fires — the failure is still captured. |
 
-> **For existing DAGs**: The global listener is the zero-effort path. Deploy it once and every DAG is covered. Add per-DAG callbacks later only for DAGs that need custom alert payloads.
+> **Recommendation**: The global listener is the zero-effort path. Deploy it once and every DAG is covered. Add per-DAG callbacks later only for DAGs that need custom alert payloads.
 
 ### Deployment
 
@@ -144,86 +144,86 @@ gcloud composer environments storage plugins import \
 
 ---
 
-## Part 2: Alerting Policies & Log-Based Metrics
+## Part 2: Alerting Policies & Log-Based Metrics (Terraform)
 
-The alerting layer has **three scripts** that must be run in order:
+All alerting policies, log-based metrics, notification channels, and dashboards are managed declaratively via Terraform in the [`terraform/monitoring/`](../terraform/monitoring/) directory.
 
 ```mermaid
 flowchart LR
-    A["1. setup_notification_channels.sh"] --> B["2. setup_alerting_policies.sh"] --> C["3. setup_log_based_metrics.sh"]
+    A["terraform/monitoring/monitoring_channels.tf"] --> B["terraform/monitoring/monitoring_composer.tf"]
+    A --> C["terraform/monitoring/monitoring_bigquery.tf"]
+    A --> D["terraform/monitoring/monitoring_datastream.tf"]
 ```
 
-### Step 1 — Notification Channels
+### Notification Channels
 
-**File**: [`monitoring/setup_notification_channels.sh`](../monitoring/setup_notification_channels.sh)
+**File**: [`terraform/monitoring/monitoring_channels.tf`](../terraform/monitoring/monitoring_channels.tf)
 
 Creates the destinations where alerts are delivered:
 
-| Channel | Type | Purpose |
-|---------|------|---------|
-| **Composer Alerts - Email** | `email` | Human-readable notifications to on-call |
-| **Composer Alerts - Pub/Sub** | `pubsub` | Programmatic consumption (topic: `composer-alerts`) |
-
-Also creates a debug subscription (`composer-alerts-debug-sub`) for manual pull during troubleshooting.
-
-```bash
-export GCP_PROJECT_ID="your-project-id"
-export ALERT_EMAIL="oncall@yourcompany.com"
-bash monitoring/setup_notification_channels.sh
-```
+| Channel | Type | Configuration |
+|---------|------|---------------|
+| **Pipeline Alerts - Email** | `email` | Always created. Set `alert_email` in `terraform.tfvars` |
+| **Pipeline Alerts - Slack** | `slack` | Optional — skipped if `slack_webhook_url` is empty |
 
 ---
 
-### Step 2 — Infrastructure Alerting Policies
+### Composer Alerting Policies
 
-**File**: [`monitoring/setup_alerting_policies.sh`](../monitoring/setup_alerting_policies.sh)
+**File**: [`terraform/monitoring/monitoring_composer.tf`](../terraform/monitoring/monitoring_composer.tf)
 
-Creates **5 alerting policies** that monitor **native Composer metrics** (the `composer.googleapis.com/*` metric family). These are infrastructure-level signals that Composer reports automatically:
-
-| # | Policy | Metric | Condition | Severity |
-|---|--------|--------|-----------|----------|
-| 1 | **Failed DAG Runs** | `composer.googleapis.com/environment/dagrun/count` | `state=failed > 0` in 5 min | Critical |
-| 2 | **Failed Task Instances** | `composer.googleapis.com/environment/task/instance_count` | `state=failed > 0` in 5 min | Critical |
-| 3 | **Scheduler Heartbeat Missing** | `composer.googleapis.com/environment/scheduler_heartbeat_count` | Absent for 5 min | Critical |
-| 4 | **Worker Pod Evictions** | `composer.googleapis.com/environment/worker/pod_eviction_count` | `> 0` in 15 min | Warning |
-| 5 | **Database Health Degraded** | `composer.googleapis.com/environment/database_health` | `state != SERVING` for 5 min | Critical |
-
-> These policies use **native Composer metrics**, not logs. They are emitted by Cloud Composer's managed infrastructure automatically — no code or plugin changes needed.
-
-```bash
-export GCP_PROJECT_ID="your-project-id"
-export COMPOSER_ENV_NAME="your-composer-env"
-export COMPOSER_LOCATION="us-central1"
-bash monitoring/setup_alerting_policies.sh
-```
-
----
-
-### Step 3 — Log-Based Metrics & Alerts
-
-**File**: [`monitoring/setup_log_based_metrics.sh`](../monitoring/setup_log_based_metrics.sh)
-
-Creates **2 log-based metrics** and **2 alerting policies** that turn Cloud Logging entries into countable, alertable signals:
+Creates **8 alerting policies** and **2 log-based metrics**:
 
 #### Log-Based Metrics
 
-| Metric | Log Filter | What It Catches |
-|--------|-----------|-----------------|
-| `composer_task_errors` | `resource.type="cloud_composer_environment"` + `severity>=ERROR` | All ERROR+ logs from tasks — including the structured JSON from the global listener, per-DAG callbacks, and any `logger.error()` in your task code |
-| `composer_dag_parse_errors` | Same + `textPayload=~"DagFileProcessorProcess\|DagBag\|import_errors"` | DAG import/parse failures (syntax errors, missing dependencies) |
+| Metric | Log Filter | Label Extractors |
+|--------|-----------|------------------|
+| `composer_task_errors` | `resource.type="cloud_composer_environment"` + `severity>=ERROR` + `alert_type=TASK_FAILURE` | `dag_id`, `task_id`, `alert_type` |
+| `composer_dag_parse_errors` | Same + `textPayload=~"DagFileProcessorProcess\|DagBag\|import_errors"` | None |
 
-#### Alerting Policies on Log-Based Metrics
+#### Alert Policies
 
-| Policy | Condition | Auto-Close |
-|--------|-----------|------------|
-| **Composer - Error Logs Detected** | `composer_task_errors > 5` in 5 minutes | 30 min |
-| **Composer - DAG Parse Errors** | `composer_dag_parse_errors > 0` | 30 min |
+| # | Policy | Metric | Condition | Severity |
+|---|--------|--------|-----------|----------|
+| 1 | **Failed DAG Runs** | `composer.googleapis.com/workflow/run_count` | `state=failed > 0` in 5 min | Critical |
+| 2 | **Failed Task Instances** | `composer.googleapis.com/environment/finished_task_instance_count` | `state=failed > 0` in 5 min | Critical |
+| 3 | **Scheduler Heartbeat Missing** | `composer.googleapis.com/environment/scheduler_heartbeat_count` | Absent for 5 min | Critical |
+| 4 | **Worker Pod Evictions** | `composer.googleapis.com/environment/worker/pod_eviction_count` | `> 0` in 15 min | Warning |
+| 5 | **Database Health Degraded** | `composer.googleapis.com/environment/database_health` | `< 1` for 5 min | Warning |
+| 6 | **Error Logs Detected** | `logging.googleapis.com/user/composer_task_errors` | `> 0` (grouped by dag_id, task_id) | Critical |
+| 7 | **DAG Parse Errors** | `logging.googleapis.com/user/composer_dag_parse_errors` | `> 0` | Error |
+| 8 | **Webserver Health Degraded** | `composer.googleapis.com/environment/web_server/health` | `< 1` for 5 min | Critical |
 
-```bash
-export GCP_PROJECT_ID="your-project-id"
-export COMPOSER_ENV_NAME="your-composer-env"
-bash monitoring/setup_log_based_metrics.sh
-```
+> These policies use both **native Composer metrics** (auto-reported by infrastructure) and **log-based metrics** (derived from Cloud Logging entries emitted by the global listener plugin).
+
+---
+
+### BigQuery Alerting Policies
+
+**File**: [`terraform/monitoring/monitoring_bigquery.tf`](../terraform/monitoring/monitoring_bigquery.tf)
+
+Creates **3 alert policies**, **1 log-based metric**, and **2 scheduled queries**:
+
+| # | Policy | Condition | Severity |
+|---|--------|-----------|----------|
+| 1 | **High Slot-Time Jobs** | Slot-seconds > threshold (P99) | Warning |
+| 2 | **Scheduled Query Failures** | Log-based metric `bq_scheduled_query_failures > 0` | Critical |
+| 3 | **Data Freshness Stale** | `uploaded_row_count` absent (conditional — requires `bq_monitored_datasets`) | Warning |
+
+---
+
+### Datastream Alerting Policies
+
+**File**: [`terraform/monitoring/monitoring_datastream.tf`](../terraform/monitoring/monitoring_datastream.tf)
+
+Conditional — only created when `datastream_stream_ids` is non-empty:
+
+| # | Policy | Condition | Severity |
+|---|--------|-----------|----------|
+| 1 | **Stream Throughput Stale** | Event count absent for 15 min | Critical |
+| 2 | **Stream Unhealthy** | Error log count > 0 | Critical |
+| 3 | **Backfill Failures** | Backfill error count > 0 | Warning |
+| 4 | **High Replication Lag** | Lag > threshold seconds (P99) | Warning |
 
 ---
 
@@ -235,31 +235,38 @@ flowchart TB
         GL["GlobalFailureListener\nCatches every task failure"]
     end
 
-    subgraph part2["Part 2: Alerting Policies"]
+    subgraph part2["Part 2: Terraform Alerting"]
         direction TB
         subgraph metrics["Signal Sources"]
-            Native["Native Composer Metrics\ncomposer.googleapis.com\n5 infrastructure policies"]
-            LogBased["Log-Based Metrics\nlogging.googleapis.com/user\n2 log-driven policies"]
+            Native["Native Composer Metrics\ncomposer.googleapis.com\n8 infrastructure policies"]
+            LogBased["Log-Based Metrics\nlogging.googleapis.com/user\nwith dag_id/task_id labels"]
+            BQ["BigQuery Metrics\n3 alert policies"]
+            DS["Datastream Metrics\n4 alert policies"]
         end
     end
 
     GL -->|"ERROR logs"| LogBased
     Native -->|"Auto-reported by Composer"| Alerts
-    LogBased --> Alerts["Cloud Monitoring\n7 Alerting Policies"]
+    LogBased --> Alerts["Cloud Monitoring\n15 Alerting Policies"]
+    BQ --> Alerts
+    DS --> Alerts
     Alerts --> Email["Email"]
-    Alerts --> PubSub["Pub/Sub"]
+    Alerts --> Slack["Slack (optional)"]
 ```
 
 | What Gets Monitored | How | Covered By |
 |---------------------|-----|------------|
 | **Task failures** (any DAG) | Global listener emits ERROR log → log-based metric → alert | Part 1 + Part 2 |
-| **DAG run failures** | Native Composer metric `dagrun/count{state=failed}` | Part 2 only |
+| **DAG run failures** | Native Composer metric `workflow/run_count{state=failed}` | Part 2 only |
 | **DAG parse errors** | Log-based metric catches parser error patterns | Part 2 only |
 | **Scheduler health** | Native metric `scheduler_heartbeat_count` absence | Part 2 only |
 | **Worker resource pressure** | Native metric `worker/pod_eviction_count` | Part 2 only |
 | **Metadata DB health** | Native metric `database_health` | Part 2 only |
+| **Webserver health** | Native metric `web_server/health` | Part 2 only |
+| **BigQuery cost/freshness** | Native BQ metrics + scheduled queries | Part 2 only |
+| **Datastream CDC health** | Native Datastream metrics + log-based metrics | Part 2 only |
 
-> **Part 1 feeds Part 2.** The global listener generates the ERROR logs that the `composer_task_errors` log-based metric counts. Without Part 1, DAGs without `on_failure_callback` would only be caught by the native `dagrun/count` metric (which is coarser — it reports at the DAG-run level, not per-task).
+> **Part 1 feeds Part 2.** The global listener generates the ERROR logs that the `composer_task_errors` log-based metric counts. Without Part 1, DAGs without `on_failure_callback` would only be caught by the native `workflow/run_count` metric (which is coarser — it reports at the DAG-run level, not per-task).
 
 ---
 
@@ -272,18 +279,13 @@ gcloud composer environments storage plugins import \
   --location=$COMPOSER_LOCATION \
   --source=plugins/global_failure_listener.py
 
-# 2. Set up notification channels
-export GCP_PROJECT_ID="your-project-id"
-export ALERT_EMAIL="oncall@yourcompany.com"
-bash monitoring/setup_notification_channels.sh
-
-# 3. Create infrastructure alerting policies
-export COMPOSER_ENV_NAME="your-composer-env"
-export COMPOSER_LOCATION="us-central1"
-bash monitoring/setup_alerting_policies.sh
-
-# 4. Create log-based metrics and alerts
-bash monitoring/setup_log_based_metrics.sh
+# 2. Deploy monitoring via Terraform
+cd terraform/monitoring
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your project settings
+terraform init
+terraform plan
+terraform apply
 ```
 
-After these 4 commands, every task failure, DAG failure, parse error, scheduler issue, pod eviction, and database health degradation across **all your DAGs** is monitored and alerted on — with zero code changes to your existing pipelines.
+After these steps, every task failure, DAG failure, parse error, scheduler issue, pod eviction, database/webserver health degradation, BigQuery cost anomalies, and Datastream CDC issues across **all your DAGs** are monitored and alerted on — with zero code changes to your existing pipelines.

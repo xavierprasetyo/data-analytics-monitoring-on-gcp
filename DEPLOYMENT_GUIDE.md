@@ -68,7 +68,7 @@ da-monitoring-alerting/
 │   ├── raw_to_silver.py              #   RAW → SILVER transformation
 │   ├── silver_to_datamart.py         #   SILVER → DATAMART aggregation
 │   ├── chaos_monkey.py               #   Random failure generator
-│   ├── callbacks.py                  #   Alert callback helpers
+│   ├── notebook_executor.py          #   Generic notebook execution framework
 │   └── config/notebooks.yaml         #   Notebook orchestration config
 │
 ├── terraform/

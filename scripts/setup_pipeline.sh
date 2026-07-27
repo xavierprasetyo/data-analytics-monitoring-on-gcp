@@ -190,12 +190,32 @@ step_deploy_dags() {
 }
 
 # ---------------------------------------------------------------------------
+# Step 5b: Upload notebooks to GCS
+# ---------------------------------------------------------------------------
+step_upload_notebooks() {
+    echo ">>> Step 5b: Uploading notebooks to GCS..."
+
+    local NOTEBOOKS_BUCKET="${PROJECT_ID}-monitoring-lab-notebooks"
+
+    for notebook_file in "$PROJECT_ROOT"/notebooks/*.ipynb; do
+        if [ -f "$notebook_file" ]; then
+            local basename
+            basename=$(basename "$notebook_file")
+            echo "    Uploading $basename..."
+            gsutil cp "$notebook_file" "gs://$NOTEBOOKS_BUCKET/$basename" 2>&1
+        fi
+    done
+
+    echo "    ✅ Notebooks uploaded to gs://$NOTEBOOKS_BUCKET/"
+}
+
+# ---------------------------------------------------------------------------
 # Step 6: Unpause DAGs
 # ---------------------------------------------------------------------------
 step_unpause_dags() {
     echo ">>> Step 6: Unpausing DAGs..."
 
-    for dag_id in raw_to_silver silver_to_datamart chaos_monkey; do
+    for dag_id in raw_to_silver silver_to_datamart notebook_executor chaos_monkey; do
         echo "    Unpausing $dag_id..."
         gcloud composer environments run "$COMPOSER_ENV" \
             --project="$PROJECT_ID" \
@@ -222,6 +242,8 @@ main() {
     step_start_datastream
     echo ""
     step_deploy_dags
+    echo ""
+    step_upload_notebooks
     echo ""
     step_unpause_dags
 

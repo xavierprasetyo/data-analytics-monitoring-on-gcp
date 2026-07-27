@@ -2,7 +2,7 @@
 # ---------------------------------------------------------------------------
 # deploy_dags.sh
 #
-# Deploys DAG files, scripts, and SQL to the Cloud Composer environment.
+# Deploys DAG files and plugins to the Cloud Composer environment.
 # Run this after `terraform apply` has completed.
 #
 # Usage:
@@ -51,7 +51,7 @@ echo ""
 # ---------------------------------------------------------------------------
 # 1. Deploy DAG Python files
 # ---------------------------------------------------------------------------
-echo "[1/5] Uploading DAG files..."
+echo "[1/4] Uploading DAG files..."
 for dag_file in "${PROJECT_DIR}"/dags/*.py; do
     filename=$(basename "${dag_file}")
     gcloud composer environments storage dags import \
@@ -65,43 +65,28 @@ done
 echo ""
 
 # ---------------------------------------------------------------------------
-# 2. Deploy simulation scripts
+# 2. Deploy DAG config files
 # ---------------------------------------------------------------------------
-echo "[2/5] Uploading simulation scripts..."
-for script_file in "${PROJECT_DIR}"/scripts/simulate_*.sh; do
-    filename=$(basename "${script_file}")
-    gcloud composer environments storage dags import \
-        --environment="${COMPOSER_ENV_NAME}" \
-        --location="${COMPOSER_LOCATION}" \
-        --project="${GCP_PROJECT_ID}" \
-        --source="${script_file}" \
-        --destination="scripts/" \
-        --quiet
-    echo "       ✓ scripts/${filename}"
+echo "[2/4] Uploading DAG config files..."
+for config_file in "${PROJECT_DIR}"/dags/config/*.yaml; do
+    if [ -f "${config_file}" ]; then
+        filename=$(basename "${config_file}")
+        gcloud composer environments storage dags import \
+            --environment="${COMPOSER_ENV_NAME}" \
+            --location="${COMPOSER_LOCATION}" \
+            --project="${GCP_PROJECT_ID}" \
+            --source="${config_file}" \
+            --destination="config/" \
+            --quiet
+        echo "       ✓ config/${filename}"
+    fi
 done
 echo ""
 
 # ---------------------------------------------------------------------------
-# 3. Deploy SQL files
+# 3. Deploy plugins (global listener for ALL DAGs)
 # ---------------------------------------------------------------------------
-echo "[3/5] Uploading SQL files..."
-for sql_file in "${PROJECT_DIR}"/sql/*.sql; do
-    filename=$(basename "${sql_file}")
-    gcloud composer environments storage dags import \
-        --environment="${COMPOSER_ENV_NAME}" \
-        --location="${COMPOSER_LOCATION}" \
-        --project="${GCP_PROJECT_ID}" \
-        --source="${sql_file}" \
-        --destination="sql/" \
-        --quiet
-    echo "       ✓ sql/${filename}"
-done
-echo ""
-
-# ---------------------------------------------------------------------------
-# 4. Deploy plugins (global listener for ALL DAGs)
-# ---------------------------------------------------------------------------
-echo "[4/5] Uploading plugins..."
+echo "[3/4] Uploading plugins..."
 for plugin_file in "${PROJECT_DIR}"/plugins/*.py; do
     if [ -f "${plugin_file}" ]; then
         filename=$(basename "${plugin_file}")
@@ -117,22 +102,16 @@ done
 echo ""
 
 # ---------------------------------------------------------------------------
-# 4. Set Airflow variables
+# 4. Upload notebooks to GCS bucket
 # ---------------------------------------------------------------------------
-echo "[5/5] Setting Airflow variables..."
-declare -A VARIABLES=(
-    ["gcp_project_id"]="${GCP_PROJECT_ID}"
-    ["bq_dataset_id"]="monitoring_lab"
-    ["force_fail_airbyte"]="false"
-    ["force_fail_dbt"]="false"
-)
-
-for key in "${!VARIABLES[@]}"; do
-    gcloud composer environments run "${COMPOSER_ENV_NAME}" \
-        --location="${COMPOSER_LOCATION}" \
-        --project="${GCP_PROJECT_ID}" \
-        variables set -- "${key}" "${VARIABLES[${key}]}" 2>/dev/null
-    echo "       ✓ ${key} = ${VARIABLES[${key}]}"
+NOTEBOOKS_BUCKET="${GCP_PROJECT_ID}-monitoring-lab-notebooks"
+echo "[4/4] Uploading notebooks to gs://${NOTEBOOKS_BUCKET}/..."
+for notebook_file in "${PROJECT_DIR}"/notebooks/*.ipynb; do
+    if [ -f "${notebook_file}" ]; then
+        filename=$(basename "${notebook_file}")
+        gsutil cp "${notebook_file}" "gs://${NOTEBOOKS_BUCKET}/${filename}" 2>&1
+        echo "       ✓ ${filename}"
+    fi
 done
 echo ""
 
@@ -152,10 +131,13 @@ echo " Airflow UI: ${AIRFLOW_URI}"
 echo ""
 echo " NEXT STEPS:"
 echo "   1. Open the Airflow UI link above"
-echo "   2. Find the 'sample_elt_pipeline' DAG"
-echo "   3. Unpause it (toggle on)"
-echo "   4. Trigger a manual run to verify it works"
+echo "   2. Find the 'raw_to_silver' DAG"
+echo "   3. Verify it is unpaused and running on schedule (every 15 min)"
+echo "   4. To test failure alerts, enable chaos injection:"
+echo "      gcloud composer environments run ${COMPOSER_ENV_NAME} \\"
+echo "        --location=${COMPOSER_LOCATION} --project=${GCP_PROJECT_ID} \\"
+echo "        variables set -- chaos_enabled true"
 echo ""
-echo " To test failure alerts:"
+echo " To run the interactive failure test menu:"
 echo "   bash tests/trigger_failures.sh"
 echo "============================================="

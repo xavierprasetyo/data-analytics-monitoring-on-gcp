@@ -33,3 +33,31 @@ resource "google_storage_bucket_object" "sample_data" {
   content = "# Sample Data Lake\n\nThis bucket simulates the GCS data lake layer.\nUsed for monitoring dashboard testing.\n"
   bucket  = google_storage_bucket.datalake.name
 }
+
+# ---------------------------------------------------------------------------
+# GCS bucket for notebook storage and execution output
+#
+# Stores:
+#   - Source notebooks (.ipynb) uploaded by deploy_dags.sh
+#   - Execution outputs written by Colab Enterprise after each run
+# ---------------------------------------------------------------------------
+
+resource "google_storage_bucket" "notebooks" {
+  name          = "${var.project_id}-monitoring-lab-notebooks"
+  project       = var.project_id
+  location      = var.region
+  storage_class = "STANDARD"
+  force_destroy = true
+
+  uniform_bucket_level_access = true
+
+  labels = {
+    purpose     = "monitoring-lab"
+    environment = "learning"
+    component   = "notebooks"
+  }
+
+  depends_on = [
+    google_project_service.apis,
+  ]
+}

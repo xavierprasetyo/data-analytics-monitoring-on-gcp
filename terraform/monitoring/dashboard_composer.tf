@@ -138,6 +138,34 @@ resource "google_monitoring_dashboard" "composer_operational" {
               }
             }
           },
+          {
+            xPos   = 24
+            yPos   = 8
+            width  = 24
+            height = 4
+            widget = {
+              title = "Zombie Task Count"
+              scorecard = {
+                timeSeriesQuery = {
+                  timeSeriesFilter = {
+                    filter = "${local.composer_env_filter} AND metric.type = \"composer.googleapis.com/environment/scheduler/zombies_killed\""
+                    aggregation = {
+                      alignmentPeriod  = "300s"
+                      perSeriesAligner = "ALIGN_SUM"
+                    }
+                  }
+                }
+                thresholds = [
+                  {
+                    value     = 1
+                    color     = "YELLOW"
+                    direction = "ABOVE"
+                    label     = "Zombies detected"
+                  }
+                ]
+              }
+            }
+          },
         ],
 
         # ================================================================

@@ -31,9 +31,11 @@ resource "google_composer_environment" "lab" {
 
       # Environment variables available to all tasks
       env_variables = {
-        GCP_PROJECT_ID    = var.project_id
-        BQ_DATASET_RAW    = var.bq_dataset_raw
-        BQ_DATASET_SILVER = var.bq_dataset_silver
+        GCP_PROJECT_ID             = var.project_id
+        BQ_DATASET_RAW             = var.bq_dataset_raw
+        BQ_DATASET_SILVER          = var.bq_dataset_silver
+        NOTEBOOKS_GCS_BUCKET       = "${var.project_id}-monitoring-lab-notebooks"
+        NOTEBOOK_RUNTIME_TEMPLATE  = "projects/${var.project_id}/locations/${var.region}/notebookRuntimeTemplates/monitoring-lab-runtime"
       }
     }
 
@@ -75,4 +77,67 @@ resource "google_project_iam_member" "composer_bq_resource_viewer" {
   project = var.project_id
   role    = "roles/bigquery.resourceViewer"
   member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+# ---------------------------------------------------------------------------
+# IAM — Grant the Composer service account Vertex AI notebook execution access
+# ---------------------------------------------------------------------------
+
+resource "google_project_iam_member" "composer_aiplatform_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_project_iam_member" "composer_bq_read_session_user" {
+  project = var.project_id
+  role    = "roles/bigquery.readSessionUser"
+  member  = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_service_account_iam_member" "composer_sa_user" {
+  service_account_id = "projects/${var.project_id}/serviceAccounts/${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_storage_bucket_iam_member" "composer_notebooks_storage" {
+  bucket = google_storage_bucket.notebooks.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${data.google_project.current.number}-compute@developer.gserviceaccount.com"
+}
+
+# ---------------------------------------------------------------------------
+# Colab Enterprise Runtime Template — Default runtime for notebook execution
+#
+# This creates a runtime template that the notebook_executor DAG references
+# when submitting notebook execution jobs via the Vertex AI API.
+#
+# NOTE: google_colab_runtime_template requires provider >= 6.x.
+# Using a provisioner to stay compatible with the project's v5.x provider.
+# ---------------------------------------------------------------------------
+
+resource "null_resource" "colab_runtime_template" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Check if runtime template already exists
+      if gcloud colab runtime-templates describe monitoring-lab-runtime \
+          --project=${var.project_id} \
+          --region=${var.region} > /dev/null 2>&1; then
+        echo "Runtime template 'monitoring-lab-runtime' already exists — skipping."
+      else
+        echo "Creating Colab Enterprise runtime template..."
+        gcloud colab runtime-templates create monitoring-lab-runtime \
+          --project=${var.project_id} \
+          --region=${var.region} \
+          --display-name="Monitoring Lab Default Runtime" \
+          --machine-type=e2-standard-2
+        echo "Runtime template created."
+      fi
+    EOT
+  }
+
+  depends_on = [
+    google_project_service.apis,
+  ]
 }
